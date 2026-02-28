@@ -114,11 +114,16 @@ jQuery(async () => {
     if (match) {
       const [_, date, hours, minutes, seconds] = match;
       const totalSeconds = parseInt(hours, 10) * 3600 + parseInt(minutes, 10) * 60 + parseInt(seconds, 10);
+
+      // 构建日期对象 (注意：Date.parse 也支持 YYYY-MM-DDTHH:mm:ss 格式)
+      const dateObject = new Date(`${date}T${hours}:${minutes}:${seconds}`);
+
       return {
         date,
         time: `${hours}:${minutes}:${seconds}`,
         fullDateTime: `${date} ${hours}:${minutes}:${seconds}`,
-        totalSeconds
+        totalSeconds,
+        dateObject: !isNaN(dateObject.getTime()) ? dateObject : null
       };
     }
     return null;
@@ -492,18 +497,26 @@ jQuery(async () => {
           totalSizeKB += sizeAsNumber / 1024;
         }
 
-        // 解析初遇时间
-        if (chat.last_mes) {
-          const date = parseSillyTavernDate(chat.last_mes);
-          if (date && (!earliestTime || date < earliestTime)) {
-            earliestTime = date;
+        // 积累时长 & 获取文件名作为初遇时间的参考（通常是文件创建时间）
+        if (chat.file_name) {
+          const timeInfo = parseTimeFromFilename(chat.file_name);
+          if (timeInfo) {
+            totalDurationSeconds += timeInfo.totalSeconds;
+            // 文件名中的日期通常是该聊天的创建日期，很有参考价值
+            if (timeInfo.dateObject && (!earliestTime || timeInfo.dateObject < earliestTime)) {
+              earliestTime = timeInfo.dateObject;
+              if (DEBUG) console.log('Based on filename, updated earliestTime to:', earliestTime);
+            }
           }
         }
 
-        // 积累时长
-        if (chat.file_name) {
-          const timeInfo = parseTimeFromFilename(chat.file_name);
-          if (timeInfo) totalDurationSeconds += timeInfo.totalSeconds;
+        // 解析初遇时间 (作为保底，metadata 通常记录的是文件的最后一条消息时间)
+        if (chat.last_mes) {
+          const date = parseSillyTavernDate(chat.last_mes);
+          if (date && (!earliestTime || date < earliestTime)) {
+            // 只有在没更好的数据时才用这个，或者这个确实更早
+            earliestTime = date;
+          }
         }
       });
 
