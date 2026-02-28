@@ -1,18 +1,17 @@
 import { getContext } from "../../../extensions.js";
 import { getPastCharacterChats } from '../../../../script.js';
 
-const extensionName = "chat-companion-stats-accurate";
-// Use an absolute path for web requests (relative to the domain root)
-const extensionWebPath = `/scripts/extensions/third-party/${extensionName}`; 
+const extensionName = "chat-companion-stats";
+const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
 const DEBUG = false;
 
 jQuery(async () => {
-  // 加载CSS文件 using absolute path
+  // 加载CSS文件 using dynamic path
   $('head').append(`<link rel="stylesheet" type="text/css" href="${extensionWebPath}/styles.css">`);
-  
-  // 加载HTML using absolute path
+
+  // 加载HTML using dynamic path
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html`);
-  $("#extensions_settings2").append(settingsHtml);
+  $("#extensions_settings").append(settingsHtml);
 
   // 确保模态框初始状态是隐藏的
   $("#ccs-preview-modal").hide();
@@ -57,8 +56,8 @@ jQuery(async () => {
   function parseSillyTavernDate(dateString) {
     if (DEBUG) console.log(`Attempting to parse date: "${dateString}"`);
     if (!dateString) {
-        if (DEBUG) console.log("Date string is empty, returning null.");
-        return null;
+      if (DEBUG) console.log("Date string is empty, returning null.");
+      return null;
     }
 
     // Try parsing the specific format "Month Day, Year HH:MMam/pm"
@@ -76,8 +75,8 @@ jQuery(async () => {
 
       const monthNumber = monthMap[monthName];
       if (!monthNumber) {
-         if (DEBUG) console.warn(`Unknown month name "${monthName}" in date string: ${dateString}`);
-         return null;
+        if (DEBUG) console.warn(`Unknown month name "${monthName}" in date string: ${dateString}`);
+        return null;
       }
       if (DEBUG) console.log(`Month number: ${monthNumber}`);
 
@@ -130,13 +129,13 @@ jQuery(async () => {
     if (!dateTimeString) return "未知时间";
     const date = new Date(dateTimeString);
     if (isNaN(date.getTime())) return "未知时间";
-    
+
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
     const hours = date.getHours();
     const minutes = date.getMinutes();
-    
+
     return `${year}年${month}月${day}日 ${hours}点${minutes}分`;
   }
 
@@ -145,7 +144,7 @@ jQuery(async () => {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}小时${minutes}分钟`;
     } else if (minutes > 0) {
@@ -163,7 +162,7 @@ jQuery(async () => {
     const chineseCount = chineseChars.length;
     const englishCount = englishWords.length;
     const totalCount = chineseCount + englishCount;
-    
+
     if (totalCount === 0) return 0;
 
     const chineseRatio = chineseCount / totalCount;
@@ -187,16 +186,16 @@ jQuery(async () => {
       const content = message.querySelector('.mes_text')?.textContent || '';
       const isUser = message.getAttribute('is_user') === 'true';
       const words = countWordsInMessage(content);
-      
+
       // 计算中英文比例
       const chineseChars = content.match(/[\u4e00-\u9fff]/g) || [];
       const englishWords = content.match(/[a-zA-Z0-9]+/g) || [];
       const totalChars = chineseChars.length + englishWords.length;
-      
+
       if (totalChars > 0) {
         const chineseRatio = chineseChars.length / totalChars;
         const englishRatio = englishWords.length / totalChars;
-        
+
         if (isUser) {
           userChineseRatio += chineseRatio;
           userEnglishRatio += englishRatio;
@@ -236,16 +235,16 @@ jQuery(async () => {
     }
 
     return {
-      user: { 
-        words: userWords, 
-        size: userSize, 
+      user: {
+        words: userWords,
+        size: userSize,
         count: userCount,
         chineseRatio: userChineseRatio,
         englishRatio: userEnglishRatio
       },
-      char: { 
-        words: charWords, 
-        size: charSize, 
+      char: {
+        words: charWords,
+        size: charSize,
         count: charCount,
         chineseRatio: charChineseRatio,
         englishRatio: charEnglishRatio
@@ -256,9 +255,9 @@ jQuery(async () => {
   // 获取最大的聊天文件内容
   async function fetchLargestChatFile(characterId) {
     const chats = await getPastCharacterChats(characterId);
-    
+
     if (!chats || chats.length === 0) return null;
-    
+
     // 找最大文件
     const largestChat = chats.reduce((prev, current) => {
       const prevSize = parseFloat(prev.file_size) || 0;
@@ -269,66 +268,66 @@ jQuery(async () => {
     if (!largestChat || !largestChat.file_name) return null;
 
     try {
-        const context = getContext();
-        const charId = context.characterId;
-        const fullFileName = largestChat.file_name;
-        const encodedFullFileName = encodeURIComponent(fullFileName); // Encode filename once
+      const context = getContext();
+      const charId = context.characterId;
+      const fullFileName = largestChat.file_name;
+      const encodedFullFileName = encodeURIComponent(fullFileName); // Encode filename once
 
-        let sampledMessages = null;
+      let sampledMessages = null;
 
-        // --- Attempt 1: Use characterId (avatar filename) ---
-        if (DEBUG) console.log("fetchLargestChatFile: Attempt 1 using characterId:", charId);
-        if (charId && typeof charId === 'string' && charId !== '0') {
-            const lastDotIndex = charId.lastIndexOf('.');
-            const folderNameFromId = lastDotIndex > 0 ? charId.substring(0, lastDotIndex) : charId;
-            if (DEBUG) console.log("fetchLargestChatFile: Derived folder name from ID:", folderNameFromId);
+      // --- Attempt 1: Use characterId (avatar filename) ---
+      if (DEBUG) console.log("fetchLargestChatFile: Attempt 1 using characterId:", charId);
+      if (charId && typeof charId === 'string' && charId !== '0') {
+        const lastDotIndex = charId.lastIndexOf('.');
+        const folderNameFromId = lastDotIndex > 0 ? charId.substring(0, lastDotIndex) : charId;
+        if (DEBUG) console.log("fetchLargestChatFile: Derived folder name from ID:", folderNameFromId);
 
-            const filePathById = `/chats/${folderNameFromId}/${encodedFullFileName}`;
-            if (DEBUG) console.log(`Attempt 1: Trying path: ${filePathById}`);
-            try {
-                const response = await fetch(filePathById, { credentials: 'same-origin' });
-                if (response.ok) {
-                    if (DEBUG) console.log(`Attempt 1: Success fetching ${filePathById}`);
-                    const text = await response.text();
-                    const lines = text.trim().split('\n');
-                    sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
-                    return sampledMessages; // Success, return early
-                } else {
-                    if (DEBUG) console.warn(`Attempt 1: Failed fetching ${filePathById}, Status: ${response.status}. Trying fallback.`);
-                }
-            } catch (fetchError) {
-                 if (DEBUG) console.warn(`Attempt 1: Error during fetch for ${filePathById}:`, fetchError, ". Trying fallback.");
-            }
-        } else {
-             if (DEBUG) console.warn("Attempt 1: Invalid characterId found:", charId, ". Skipping ID-based path, trying fallback.");
-        }
-
-        // --- Attempt 2 (Fallback): Use encoded character name from filename ---
-        if (DEBUG) console.log("fetchLargestChatFile: Attempt 2 using encoded character name from filename.");
-        const characterNameFromName = fullFileName.split(' - ')[0];
-        const encodedCharacterName = encodeURIComponent(characterNameFromName);
-        const filePathByName = `/chats/${encodedCharacterName}/${encodedFullFileName}`; // Use encoded filename here too
-        if (DEBUG) console.log(`Attempt 2: Trying path: ${filePathByName}`);
+        const filePathById = `/chats/${folderNameFromId}/${encodedFullFileName}`;
+        if (DEBUG) console.log(`Attempt 1: Trying path: ${filePathById}`);
         try {
-            const response = await fetch(filePathByName, { credentials: 'same-origin' });
-            if (response.ok) {
-                if (DEBUG) console.log(`Attempt 2: Success fetching ${filePathByName}`);
-                const text = await response.text();
-                const lines = text.trim().split('\n');
-                sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
-                return sampledMessages; // Success
-            } else {
-                if (DEBUG) console.warn(`Attempt 2: Failed fetching ${filePathByName}, Status: ${response.status}. Giving up.`);
-                return null; // Both attempts failed
-            }
+          const response = await fetch(filePathById, { credentials: 'same-origin' });
+          if (response.ok) {
+            if (DEBUG) console.log(`Attempt 1: Success fetching ${filePathById}`);
+            const text = await response.text();
+            const lines = text.trim().split('\n');
+            sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
+            return sampledMessages; // Success, return early
+          } else {
+            if (DEBUG) console.warn(`Attempt 1: Failed fetching ${filePathById}, Status: ${response.status}. Trying fallback.`);
+          }
         } catch (fetchError) {
-            console.error(`Attempt 2: Error during fetch for ${filePathByName}:`, fetchError, ". Giving up.");
-            return null; // Both attempts failed
+          if (DEBUG) console.warn(`Attempt 1: Error during fetch for ${filePathById}:`, fetchError, ". Trying fallback.");
         }
+      } else {
+        if (DEBUG) console.warn("Attempt 1: Invalid characterId found:", charId, ". Skipping ID-based path, trying fallback.");
+      }
+
+      // --- Attempt 2 (Fallback): Use encoded character name from filename ---
+      if (DEBUG) console.log("fetchLargestChatFile: Attempt 2 using encoded character name from filename.");
+      const characterNameFromName = fullFileName.split(' - ')[0];
+      const encodedCharacterName = encodeURIComponent(characterNameFromName);
+      const filePathByName = `/chats/${encodedCharacterName}/${encodedFullFileName}`; // Use encoded filename here too
+      if (DEBUG) console.log(`Attempt 2: Trying path: ${filePathByName}`);
+      try {
+        const response = await fetch(filePathByName, { credentials: 'same-origin' });
+        if (response.ok) {
+          if (DEBUG) console.log(`Attempt 2: Success fetching ${filePathByName}`);
+          const text = await response.text();
+          const lines = text.trim().split('\n');
+          sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
+          return sampledMessages; // Success
+        } else {
+          if (DEBUG) console.warn(`Attempt 2: Failed fetching ${filePathByName}, Status: ${response.status}. Giving up.`);
+          return null; // Both attempts failed
+        }
+      } catch (fetchError) {
+        console.error(`Attempt 2: Error during fetch for ${filePathByName}:`, fetchError, ". Giving up.");
+        return null; // Both attempts failed
+      }
 
     } catch (error) {
-        console.error("Error in fetchLargestChatFile logic:", error);
-        return null;
+      console.error("Error in fetchLargestChatFile logic:", error);
+      return null;
     }
   }
 
@@ -343,16 +342,16 @@ jQuery(async () => {
       const content = message.mes || '';
       const isUser = message.is_user;
       const words = countWordsInMessage(content);
-      
+
       // 计算中英文比例
       const chineseChars = content.match(/[\u4e00-\u9fff]/g) || [];
       const englishWords = content.match(/[a-zA-Z0-9]+/g) || [];
       const totalChars = chineseChars.length + englishWords.length;
-      
+
       if (totalChars > 0) {
         const chineseRatio = chineseChars.length / totalChars;
         const englishRatio = englishWords.length / totalChars;
-        
+
         if (isUser) {
           userChineseRatio += chineseRatio;
           userEnglishRatio += englishRatio;
@@ -392,16 +391,16 @@ jQuery(async () => {
     }
 
     return {
-      user: { 
-        words: userWords, 
-        size: userSize, 
+      user: {
+        words: userWords,
+        size: userSize,
         count: userCount,
         chineseRatio: userChineseRatio,
         englishRatio: userEnglishRatio
       },
-      char: { 
-        words: charWords, 
-        size: charSize, 
+      char: {
+        words: charWords,
+        size: charSize,
         count: charCount,
         chineseRatio: charChineseRatio,
         englishRatio: charEnglishRatio
@@ -438,26 +437,26 @@ jQuery(async () => {
 
       chats.forEach(chat => {
         totalMessagesFromChats += chat.chat_items || 0;
-        
+
         // 计算文件大小 (store raw bytes)
         const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
         const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
         const sizeMatchBytes = chat.file_size?.match(/^(\d+)$/); // Match plain bytes
 
         if (sizeMatchMB) {
-            totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
+          totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
         } else if (sizeMatchKB) {
-            totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
+          totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
         } else if (sizeMatchBytes) {
-            totalSizeBytesRaw += parseInt(sizeMatchBytes[1], 10);
+          totalSizeBytesRaw += parseInt(sizeMatchBytes[1], 10);
         } else if (chat.file_size) {
-            // Attempt to parse if it's just a number (assume bytes)
-            const sizeAsNumber = parseFloat(chat.file_size);
-            if (!isNaN(sizeAsNumber)) {
-                totalSizeBytesRaw += sizeAsNumber;
-            } else {
-                console.warn(`Could not parse file size: ${chat.file_size}`);
-            }
+          // Attempt to parse if it's just a number (assume bytes)
+          const sizeAsNumber = parseFloat(chat.file_size);
+          if (!isNaN(sizeAsNumber)) {
+            totalSizeBytesRaw += sizeAsNumber;
+          } else {
+            console.warn(`Could not parse file size: ${chat.file_size}`);
+          }
         }
 
         // --- Calculate totalSizeKB (for word count estimation) --- ADDED BACK
@@ -509,82 +508,82 @@ jQuery(async () => {
 
       // 如果当前聊天消息数量少（<=2）且有历史文件，使用基于历史元数据的估算
       if (currentMessageCount <= 2 && chats && chats.length > 0 && totalMessagesFromChats > 0) {
-          if (DEBUG) console.log(`当前消息数 (${currentMessageCount}) <= 2，使用历史元数据估算...`);
-          // 1. 使用默认密度估算历史总字数
-          const historicalWordsEstimateFromSize = totalSizeKB * 32.5; // Default density
-          // 2. 计算历史平均每条消息字数
-          const historicalAvgWordsPerMessage = historicalWordsEstimateFromSize / totalMessagesFromChats;
-          // 3. 使用历史平均字数 * 总历史消息数 作为最终估算
-          estimatedWords = Math.round(totalMessagesFromChats * historicalAvgWordsPerMessage);
+        if (DEBUG) console.log(`当前消息数 (${currentMessageCount}) <= 2，使用历史元数据估算...`);
+        // 1. 使用默认密度估算历史总字数
+        const historicalWordsEstimateFromSize = totalSizeKB * 32.5; // Default density
+        // 2. 计算历史平均每条消息字数
+        const historicalAvgWordsPerMessage = historicalWordsEstimateFromSize / totalMessagesFromChats;
+        // 3. 使用历史平均字数 * 总历史消息数 作为最终估算
+        estimatedWords = Math.round(totalMessagesFromChats * historicalAvgWordsPerMessage);
 
-          if (DEBUG) {
-            console.log(`使用历史元数据估算:`);
-            console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-            console.log(`- 历史平均字数 (估算): ${historicalAvgWordsPerMessage.toFixed(2)}字/条`);
-            console.log(`- 最终估算: ${estimatedWords}字`);
-          }
+        if (DEBUG) {
+          console.log(`使用历史元数据估算:`);
+          console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
+          console.log(`- 历史平均字数 (估算): ${historicalAvgWordsPerMessage.toFixed(2)}字/条`);
+          console.log(`- 最终估算: ${estimatedWords}字`);
+        }
       }
       // 如果当前聊天有足够消息 (>2)，使用当前聊天综合估算 (区分用户/角色)
       else if (currentMessageCount > 2) {
         if (DEBUG) console.log(`当前消息数 (${currentMessageCount}) > 2，使用当前聊天综合估算...`);
-        
+
         // Check if we have stats for both user and character in the current chat
         if (currentStats.user.count > 0 && currentStats.char.count > 0 && totalSizeBytes > 0) {
-            if (DEBUG) console.log(`区分用户/角色进行估算...`);
-            // Calculate separate stats based on current chat
-            const userWordsPerKB = currentStats.user.size > 0 ? currentStats.user.words / (currentStats.user.size / 1024) : 0;
-            const userAvgWords = currentStats.user.words / currentStats.user.count;
-            const charWordsPerKB = currentStats.char.size > 0 ? currentStats.char.words / (currentStats.char.size / 1024) : 0;
-            const charAvgWords = currentStats.char.words / currentStats.char.count;
+          if (DEBUG) console.log(`区分用户/角色进行估算...`);
+          // Calculate separate stats based on current chat
+          const userWordsPerKB = currentStats.user.size > 0 ? currentStats.user.words / (currentStats.user.size / 1024) : 0;
+          const userAvgWords = currentStats.user.words / currentStats.user.count;
+          const charWordsPerKB = currentStats.char.size > 0 ? currentStats.char.words / (currentStats.char.size / 1024) : 0;
+          const charAvgWords = currentStats.char.words / currentStats.char.count;
 
-            // Estimate historical split (simple 50/50 for messages, ratio-based for size)
-            const histUserMessages = totalMessagesFromChats / 2;
-            const histCharMessages = totalMessagesFromChats / 2;
-            const currentUserSizeRatio = currentStats.user.size / totalSizeBytes;
-            const histUserSizeKB = totalSizeKB * currentUserSizeRatio;
-            const histCharSizeKB = totalSizeKB * (1 - currentUserSizeRatio);
+          // Estimate historical split (simple 50/50 for messages, ratio-based for size)
+          const histUserMessages = totalMessagesFromChats / 2;
+          const histCharMessages = totalMessagesFromChats / 2;
+          const currentUserSizeRatio = currentStats.user.size / totalSizeBytes;
+          const histUserSizeKB = totalSizeKB * currentUserSizeRatio;
+          const histCharSizeKB = totalSizeKB * (1 - currentUserSizeRatio);
 
-            // Estimate using separate densities
-            const densityEstimate = (histUserSizeKB * userWordsPerKB) + (histCharSizeKB * charWordsPerKB);
-            // Estimate using separate averages
-            const avgEstimate = (histUserMessages * userAvgWords) + (histCharMessages * charAvgWords);
+          // Estimate using separate densities
+          const densityEstimate = (histUserSizeKB * userWordsPerKB) + (histCharSizeKB * charWordsPerKB);
+          // Estimate using separate averages
+          const avgEstimate = (histUserMessages * userAvgWords) + (histCharMessages * charAvgWords);
 
-            // Use the minimum of the two refined estimates
-            estimatedWords = Math.min(Math.round(densityEstimate), Math.round(avgEstimate));
+          // Use the minimum of the two refined estimates
+          estimatedWords = Math.min(Math.round(densityEstimate), Math.round(avgEstimate));
 
-            if (DEBUG) {
-              console.log(`使用区分用户/角色的综合估算:`);
-              console.log(`- 当前用户: ${currentStats.user.words.toFixed(1)}字, ${(currentStats.user.size/1024).toFixed(2)}KB, ${currentStats.user.count}条`);
-              console.log(`  - 用户密度: ${userWordsPerKB.toFixed(2)}字/KB, 用户平均: ${userAvgWords.toFixed(2)}字/条`);
-              console.log(`- 当前角色: ${currentStats.char.words.toFixed(1)}字, ${(currentStats.char.size/1024).toFixed(2)}KB, ${currentStats.char.count}条`);
-              console.log(`  - 角色密度: ${charWordsPerKB.toFixed(2)}字/KB, 角色平均: ${charAvgWords.toFixed(2)}字/条`);
-              console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-              console.log(`  - 估算历史用户: ${histUserMessages.toFixed(0)}条, ${histUserSizeKB.toFixed(2)}KB`);
-              console.log(`  - 估算历史角色: ${histCharMessages.toFixed(0)}条, ${histCharSizeKB.toFixed(2)}KB`);
-              console.log(`- 密度估算(分开): ${Math.round(densityEstimate)}字`);
-              console.log(`- 平均估算(分开): ${Math.round(avgEstimate)}字`);
-              console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
-            }
+          if (DEBUG) {
+            console.log(`使用区分用户/角色的综合估算:`);
+            console.log(`- 当前用户: ${currentStats.user.words.toFixed(1)}字, ${(currentStats.user.size / 1024).toFixed(2)}KB, ${currentStats.user.count}条`);
+            console.log(`  - 用户密度: ${userWordsPerKB.toFixed(2)}字/KB, 用户平均: ${userAvgWords.toFixed(2)}字/条`);
+            console.log(`- 当前角色: ${currentStats.char.words.toFixed(1)}字, ${(currentStats.char.size / 1024).toFixed(2)}KB, ${currentStats.char.count}条`);
+            console.log(`  - 角色密度: ${charWordsPerKB.toFixed(2)}字/KB, 角色平均: ${charAvgWords.toFixed(2)}字/条`);
+            console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
+            console.log(`  - 估算历史用户: ${histUserMessages.toFixed(0)}条, ${histUserSizeKB.toFixed(2)}KB`);
+            console.log(`  - 估算历史角色: ${histCharMessages.toFixed(0)}条, ${histCharSizeKB.toFixed(2)}KB`);
+            console.log(`- 密度估算(分开): ${Math.round(densityEstimate)}字`);
+            console.log(`- 平均估算(分开): ${Math.round(avgEstimate)}字`);
+            console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
+          }
 
         } else {
-            // Fallback to simpler combined estimation if current chat is one-sided or has zero size
-            if (DEBUG) console.log(`当前聊天样本不均衡或大小为零，回退到简单综合估算...`);
-            const wordsPerKB = totalSizeBytes > 0 ? totalWords / (totalSizeBytes / 1024) : 0;
-            const avgWordsPerMessage = totalWords / currentMessageCount;
-            const estimateByDensity = totalSizeKB * wordsPerKB;
-            const estimateByAvgWords = avgWordsPerMessage * totalMessagesFromChats;
-            estimatedWords = Math.min(Math.round(estimateByDensity), Math.round(estimateByAvgWords));
+          // Fallback to simpler combined estimation if current chat is one-sided or has zero size
+          if (DEBUG) console.log(`当前聊天样本不均衡或大小为零，回退到简单综合估算...`);
+          const wordsPerKB = totalSizeBytes > 0 ? totalWords / (totalSizeBytes / 1024) : 0;
+          const avgWordsPerMessage = totalWords / currentMessageCount;
+          const estimateByDensity = totalSizeKB * wordsPerKB;
+          const estimateByAvgWords = avgWordsPerMessage * totalMessagesFromChats;
+          estimatedWords = Math.min(Math.round(estimateByDensity), Math.round(estimateByAvgWords));
 
-            if (DEBUG) {
-              console.log(`使用简单综合估算:`);
-              console.log(`- 当前聊天: ${totalWords}字, ${(totalSizeBytes/1024).toFixed(2)}KB, ${currentMessageCount}条消息`);
-              console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-              console.log(`- 字数密度: ${wordsPerKB.toFixed(2)}字/KB`);
-              console.log(`- 平均字数: ${avgWordsPerMessage.toFixed(2)}字/条`);
-              console.log(`- 密度估算: ${Math.round(estimateByDensity)}字`);
-              console.log(`- 平均估算: ${Math.round(estimateByAvgWords)}字`);
-              console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
-            }
+          if (DEBUG) {
+            console.log(`使用简单综合估算:`);
+            console.log(`- 当前聊天: ${totalWords}字, ${(totalSizeBytes / 1024).toFixed(2)}KB, ${currentMessageCount}条消息`);
+            console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
+            console.log(`- 字数密度: ${wordsPerKB.toFixed(2)}字/KB`);
+            console.log(`- 平均字数: ${avgWordsPerMessage.toFixed(2)}字/条`);
+            console.log(`- 密度估算: ${Math.round(estimateByDensity)}字`);
+            console.log(`- 平均估算: ${Math.round(estimateByAvgWords)}字`);
+            console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
+          }
         }
         if (DEBUG) {
           console.log(`中英文比例 - 用户: 中文 ${(currentStats.user.chineseRatio * 100).toFixed(1)}%, 英文 ${(currentStats.user.englishRatio * 100).toFixed(1)}%`);
@@ -633,23 +632,23 @@ jQuery(async () => {
       // Additional check: If multiple files exist, are they all minimal (<=1 message)?
       let allFilesAreMinimal = false;
       if (chats && chats.length > 1) {
-          allFilesAreMinimal = chats.every(chat => (chat.chat_items || 0) <= 1);
-          if (allFilesAreMinimal) {
-              if (DEBUG) console.log(`检测到多个聊天文件，但每个文件消息数都 <= 1。`);
-          }
+        allFilesAreMinimal = chats.every(chat => (chat.chat_items || 0) <= 1);
+        if (allFilesAreMinimal) {
+          if (DEBUG) console.log(`检测到多个聊天文件，但每个文件消息数都 <= 1。`);
+        }
       }
 
       // Final check: Treat as no interaction if total messages <= 1 OR if all files are minimal
       if (totalMessagesFromChats <= 1 || allFilesAreMinimal) {
-          if (DEBUG) console.log(`总消息数 (${totalMessagesFromChats}) <= 1 或所有文件消息数均 <= 1，重置统计数据为“尚未互动”状态。`);
-          return {
-              messageCount: 0,
-              wordCount: 0,
-              firstTime: null,
-              totalDuration: 0,
-              totalSizeBytes: 0,
-              chatFilesCount
-          };
+        if (DEBUG) console.log(`总消息数 (${totalMessagesFromChats}) <= 1 或所有文件消息数均 <= 1，重置统计数据为“尚未互动”状态。`);
+        return {
+          messageCount: 0,
+          wordCount: 0,
+          firstTime: null,
+          totalDuration: 0,
+          totalSizeBytes: 0,
+          chatFilesCount
+        };
       }
 
       // Otherwise, return the calculated stats
@@ -695,7 +694,7 @@ jQuery(async () => {
     if (messageCount <= 1) {
       $shareButton.prop('disabled', true).val('尚未互动');
       if (DEBUG) console.log('updateShareButtonState: Disabled (messageCount <= 1)');
-      return; 
+      return;
     }
 
     // If interaction exists (messageCount > 1), check if options are selected
@@ -741,17 +740,17 @@ jQuery(async () => {
       // Format total size dynamically (KB or MB)
       let formattedSize = '--';
       if (stats.totalSizeBytes !== undefined && stats.totalSizeBytes >= 0) {
-          const bytes = stats.totalSizeBytes;
-          const kb = bytes / 1024;
-          const mb = kb / 1024;
+        const bytes = stats.totalSizeBytes;
+        const kb = bytes / 1024;
+        const mb = kb / 1024;
 
-          if (mb >= 1) {
-              formattedSize = `${mb.toFixed(2)} MB`;
-          } else if (kb >= 1) {
-              formattedSize = `${kb.toFixed(2)} KB`;
-          } else {
-              formattedSize = `${bytes} B`; // Display bytes if less than 1 KB
-          }
+        if (mb >= 1) {
+          formattedSize = `${mb.toFixed(2)} MB`;
+        } else if (kb >= 1) {
+          formattedSize = `${kb.toFixed(2)} KB`;
+        } else {
+          formattedSize = `${bytes} B`; // Display bytes if less than 1 KB
+        }
       }
       $("#ccs-total-size").text(formattedSize);
 
@@ -761,22 +760,22 @@ jQuery(async () => {
         $("#ccs-start").text("尚未互动");
         $("#ccs-days").text("0");
         // Pass messageCount even if firstTime is null
-        updateShareButtonState(stats.messageCount); 
+        updateShareButtonState(stats.messageCount);
       } else {
         const now = new Date();
         // Ensure stats.firstTime is a Date object
         const firstTimeDate = stats.firstTime instanceof Date ? stats.firstTime : new Date(stats.firstTime);
         if (DEBUG) console.log('First time date:', firstTimeDate);
-        
+
         // 使用 UTC 日期来避免时区问题
         const utcNow = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
         const utcFirstTime = Date.UTC(firstTimeDate.getFullYear(), firstTimeDate.getMonth(), firstTimeDate.getDate());
-        
+
         // 计算天数：从第一次互动到现在的天数（包括今天）
         const diffTime = Math.abs(utcNow - utcFirstTime);
         const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // 加1确保包括今天
         if (DEBUG) console.log('Calculated days:', days);
-        
+
         // 格式化初遇时间
         const firstTimeFormatted = formatDateTime(stats.firstTime);
         if (DEBUG) console.log('Formatted first time:', firstTimeFormatted);
@@ -784,7 +783,7 @@ jQuery(async () => {
         $("#ccs-start").text(firstTimeFormatted);
         $("#ccs-days").text(days);
         // Pass messageCount to the state function
-        updateShareButtonState(stats.messageCount); 
+        updateShareButtonState(stats.messageCount);
       }
       // Removed the stray 'else' block that was here
 
@@ -847,7 +846,7 @@ jQuery(async () => {
         return avatar.src;
       }
     }
-    
+
     if (DEBUG) console.log("getUserAvatar: Could not find user avatar.");
     return null; // Return null if not found in either place
   }
@@ -876,24 +875,24 @@ jQuery(async () => {
     const shareStartChecked = $("#ccs-share-start").is(":checked");
 
     if (shareStartChecked) {
-        statsToDraw.push(`与 ${characterName} 初遇于`);
-        statsToDraw.push(startDate);
+      statsToDraw.push(`与 ${characterName} 初遇于`);
+      statsToDraw.push(startDate);
     } else {
-        statsToDraw.push(`与 ${characterName}`);
+      statsToDraw.push(`与 ${characterName}`);
     }
     if ($("#ccs-share-messages").is(":checked")) {
-        statsToDraw.push(`共对话 ${messages} 条`);
+      statsToDraw.push(`共对话 ${messages} 条`);
     }
     if ($("#ccs-share-words").is(":checked")) {
-        statsToDraw.push(`共聊天约 ${words} 字`);
+      statsToDraw.push(`共聊天约 ${words} 字`);
     }
     if ($("#ccs-share-days").is(":checked")) {
-        statsToDraw.push(`相伴 ${days} 天`);
+      statsToDraw.push(`相伴 ${days} 天`);
     }
     // Add the new "回忆大小" stat if the corresponding UI element has a value, using the correct format
     if (totalSize && totalSize !== '--' && $("#ccs-share-size").is(":checked")) { // Check a new checkbox ID
-        // Ensure the format is "回忆大小: X.XX MB/KB/B"
-        statsToDraw.push(`回忆大小 ${totalSize}`); // totalSize already includes the formatted size and unit from updateStats
+      // Ensure the format is "回忆大小: X.XX MB/KB/B"
+      statsToDraw.push(`回忆大小 ${totalSize}`); // totalSize already includes the formatted size and unit from updateStats
     }
 
     // --- Calculate dynamic height ---
@@ -908,7 +907,7 @@ jQuery(async () => {
     // 绘制背景
     ctx.fillStyle = '#1f2937';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+
     // 添加渐变边框 (using dynamic height)
     const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     gradient.addColorStop(0, '#3b82f6');
@@ -930,7 +929,7 @@ jQuery(async () => {
     // 预加载两个头像
     let characterAvatar = null;
     let userAvatar = null;
-    
+
     if (avatarUrl) {
       try {
         characterAvatar = await new Promise((resolve, reject) => {
@@ -944,7 +943,7 @@ jQuery(async () => {
         console.error('加载角色头像失败:', error);
       }
     }
-    
+
     if (userAvatarUrl) {
       try {
         userAvatar = await new Promise((resolve, reject) => {
@@ -981,7 +980,7 @@ jQuery(async () => {
       ctx.translate(x, y);
 
       // 创建渐变
-      const lockGradient = ctx.createLinearGradient(-symbolSize/2, -symbolSize/2, symbolSize/2, symbolSize/2);
+      const lockGradient = ctx.createLinearGradient(-symbolSize / 2, -symbolSize / 2, symbolSize / 2, symbolSize / 2);
       lockGradient.addColorStop(0, '#3b82f6');
       lockGradient.addColorStop(1, '#8b5cf6');
 
@@ -993,28 +992,28 @@ jQuery(async () => {
       const archWidth = symbolSize * 0.6;
       const archHeight = symbolSize * 0.4;
       ctx.beginPath();
-      ctx.moveTo(-archWidth/2, -symbolSize/4);
+      ctx.moveTo(-archWidth / 2, -symbolSize / 4);
       ctx.bezierCurveTo(
-        -archWidth/2, -symbolSize/2,
-        archWidth/2, -symbolSize/2,
-        archWidth/2, -symbolSize/4
+        -archWidth / 2, -symbolSize / 2,
+        archWidth / 2, -symbolSize / 2,
+        archWidth / 2, -symbolSize / 4
       );
       ctx.stroke();
-      
+
       // 绘制锁的主体（圆角矩形）
       const lockWidth = symbolSize * 0.7;
       const lockHeight = symbolSize * 0.6;
       ctx.beginPath();
       const radius = 10; // Doubled
-      ctx.moveTo(-lockWidth/2 + radius, -symbolSize/4);
-      ctx.lineTo(lockWidth/2 - radius, -symbolSize/4);
-      ctx.quadraticCurveTo(lockWidth/2, -symbolSize/4, lockWidth/2, -symbolSize/4 + radius);
-      ctx.lineTo(lockWidth/2, -symbolSize/4 + lockHeight - radius);
-      ctx.quadraticCurveTo(lockWidth/2, -symbolSize/4 + lockHeight, lockWidth/2 - radius, -symbolSize/4 + lockHeight);
-      ctx.lineTo(-lockWidth/2 + radius, -symbolSize/4 + lockHeight);
-      ctx.quadraticCurveTo(-lockWidth/2, -symbolSize/4 + lockHeight, -lockWidth/2, -symbolSize/4 + lockHeight - radius);
-      ctx.lineTo(-lockWidth/2, -symbolSize/4 + radius);
-      ctx.quadraticCurveTo(-lockWidth/2, -symbolSize/4, -lockWidth/2 + radius, -symbolSize/4);
+      ctx.moveTo(-lockWidth / 2 + radius, -symbolSize / 4);
+      ctx.lineTo(lockWidth / 2 - radius, -symbolSize / 4);
+      ctx.quadraticCurveTo(lockWidth / 2, -symbolSize / 4, lockWidth / 2, -symbolSize / 4 + radius);
+      ctx.lineTo(lockWidth / 2, -symbolSize / 4 + lockHeight - radius);
+      ctx.quadraticCurveTo(lockWidth / 2, -symbolSize / 4 + lockHeight, lockWidth / 2 - radius, -symbolSize / 4 + lockHeight);
+      ctx.lineTo(-lockWidth / 2 + radius, -symbolSize / 4 + lockHeight);
+      ctx.quadraticCurveTo(-lockWidth / 2, -symbolSize / 4 + lockHeight, -lockWidth / 2, -symbolSize / 4 + lockHeight - radius);
+      ctx.lineTo(-lockWidth / 2, -symbolSize / 4 + radius);
+      ctx.quadraticCurveTo(-lockWidth / 2, -symbolSize / 4, -lockWidth / 2 + radius, -symbolSize / 4);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
@@ -1030,7 +1029,7 @@ jQuery(async () => {
       ctx.lineTo(0, 16); // Doubled y end
       ctx.strokeStyle = '#1f2937';
       ctx.stroke();
-      
+
       ctx.restore();
     }
 
@@ -1040,7 +1039,7 @@ jQuery(async () => {
       ctx.fillStyle = '#2a3441';
       drawRoundedRect(x, avatarY, avatarWidth, avatarHeight, cornerRadius);
       ctx.fill();
-      
+
       // 绘制头像边框
       const borderGradient = ctx.createLinearGradient(x, avatarY, x, avatarY + avatarHeight);
       borderGradient.addColorStop(0, '#3b82f6');
@@ -1068,40 +1067,40 @@ jQuery(async () => {
     const showUserAvatar = $("#ccs-share-user-avatar").is(":checked");
 
     if (showUserAvatar) {
-        // Draw both avatars with spacing
-        const leftX = canvas.width / 2 - spacing / 2 - avatarWidth;
-        const rightX = canvas.width / 2 + spacing / 2;
-        drawAvatar(userAvatar, leftX, false);
-        drawAvatar(characterAvatar, rightX, true);
-        
-        // Draw connecting line and symbol
-        const lineY = avatarY + avatarHeight / 2;
-        const lineStartX = leftX + avatarWidth + 20; // Doubled spacing
-        const lineEndX = rightX - 20; // Doubled spacing
+      // Draw both avatars with spacing
+      const leftX = canvas.width / 2 - spacing / 2 - avatarWidth;
+      const rightX = canvas.width / 2 + spacing / 2;
+      drawAvatar(userAvatar, leftX, false);
+      drawAvatar(characterAvatar, rightX, true);
 
-        // Draw gradient dashed line
-        const lineGradient = ctx.createLinearGradient(lineStartX, lineY, lineEndX, lineY);
-        lineGradient.addColorStop(0, '#3b82f6');
-        lineGradient.addColorStop(1, '#8b5cf6');
-        ctx.beginPath();
-        ctx.strokeStyle = lineGradient;
-        ctx.lineWidth = 4; // Doubled
-        ctx.setLineDash([10, 6]); // Doubled dash pattern
-        ctx.moveTo(lineStartX, lineY);
-        ctx.lineTo(lineEndX, lineY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        
-        // Draw chain symbol
-        drawChainSymbol(canvas.width / 2, lineY);
+      // Draw connecting line and symbol
+      const lineY = avatarY + avatarHeight / 2;
+      const lineStartX = leftX + avatarWidth + 20; // Doubled spacing
+      const lineEndX = rightX - 20; // Doubled spacing
+
+      // Draw gradient dashed line
+      const lineGradient = ctx.createLinearGradient(lineStartX, lineY, lineEndX, lineY);
+      lineGradient.addColorStop(0, '#3b82f6');
+      lineGradient.addColorStop(1, '#8b5cf6');
+      ctx.beginPath();
+      ctx.strokeStyle = lineGradient;
+      ctx.lineWidth = 4; // Doubled
+      ctx.setLineDash([10, 6]); // Doubled dash pattern
+      ctx.moveTo(lineStartX, lineY);
+      ctx.lineTo(lineEndX, lineY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw chain symbol
+      drawChainSymbol(canvas.width / 2, lineY);
     } else {
-        // Draw only character avatar, centered
-        const centerX = canvas.width / 2;
-        const charAvatarX = centerX - avatarWidth / 2;
-        drawAvatar(characterAvatar, charAvatarX, true);
-        // Skip user avatar, line, and symbol
+      // Draw only character avatar, centered
+      const centerX = canvas.width / 2;
+      const charAvatarX = centerX - avatarWidth / 2;
+      drawAvatar(characterAvatar, charAvatarX, true);
+      // Skip user avatar, line, and symbol
     }
-    
+
     // 设置文本样式
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
@@ -1140,38 +1139,38 @@ jQuery(async () => {
     ctx.fillStyle = '#6b7280';
     const watermarkY = canvas.height - bottomPadding; // Position near the bottom using dynamic height
     ctx.fillText(watermarkText, canvas.width / 2, watermarkY);
-    
+
     return canvas.toDataURL('image/png');
   }
 
   function showPreview(imageData) {
     const $modal = $("#ccs-preview-modal");
     const $container = $("#ccs-preview-container");
-    
+
     // 清空之前的内容
     $container.empty();
-    
+
     // 创建预览图片
     const img = new Image();
     img.src = imageData;
     img.style.maxWidth = '100%';
     img.style.height = 'auto';
     img.style.borderRadius = '5px';
-    
+
     // 添加到容器
     $container.append(img);
-    
+
     // 显示模态框
     $modal.css('display', 'flex');
   }
 
   // 添加刷新按钮事件处理
-  $("#ccs-refresh").on("click", async function() {
+  $("#ccs-refresh").on("click", async function () {
     const $button = $(this);
-    
+
     // 禁用按钮并显示更新中状态
     $button.prop('disabled', true).val('更新中...');
-    
+
     try {
       // 更新统计
       await updateStats();
@@ -1190,12 +1189,12 @@ jQuery(async () => {
   });
 
   // 添加分享按钮事件处理
-  $("#ccs-share").on("click", async function() {
+  $("#ccs-share").on("click", async function () {
     const $button = $(this);
     if ($button.prop('disabled')) return; // 如果按钮被禁用，直接返回
-    
+
     $button.prop('disabled', true).val('生成中...');
-    
+
     try {
       const imageData = await generateShareImage();
       showPreview(imageData);
@@ -1210,12 +1209,12 @@ jQuery(async () => {
   });
 
   // 添加取消按钮事件处理
-  $("#ccs-cancel").on("click", function() {
+  $("#ccs-cancel").on("click", function () {
     $("#ccs-preview-modal").hide();
   });
 
   // 添加保存按钮事件
-  $("#ccs-download").on("click", function() {
+  $("#ccs-download").on("click", function () {
     const characterName = getCurrentCharacterName();
     const link = document.createElement('a');
     link.download = `羁绊卡片_${characterName}.png`;
@@ -1224,7 +1223,7 @@ jQuery(async () => {
   });
 
   // 点击模态框背景关闭
-  $("#ccs-preview-modal").on("click", function(e) {
+  $("#ccs-preview-modal").on("click", function (e) {
     if (e.target === this) {
       $(this).hide();
     }
@@ -1237,10 +1236,10 @@ jQuery(async () => {
   updateStats(); // Keep initial update on load
 
   // Add change listener to checkboxes to update share button state
-  $(document).on('change', '.ccs-share-option input[type="checkbox"]', function() {
-      // Re-evaluate button state based on current message count whenever options change
-      const currentMessageCount = parseInt($("#ccs-messages").text(), 10) || 0; 
-      updateShareButtonState(currentMessageCount);
+  $(document).on('change', '.ccs-share-option input[type="checkbox"]', function () {
+    // Re-evaluate button state based on current message count whenever options change
+    const currentMessageCount = parseInt($("#ccs-messages").text(), 10) || 0;
+    updateShareButtonState(currentMessageCount);
   });
 
   // Observe character selection changes to trigger auto-refresh
@@ -1248,26 +1247,26 @@ jQuery(async () => {
     // Check if the mutations likely indicate a character change
     // A simple check is often enough, but could be refined if needed
     for (const mutation of mutationsList) {
-        if (mutation.type === 'childList' || mutation.type === 'characterData') {
-             if (DEBUG) console.log('Selected character change observed, triggering debounced update...');
-             debouncedUpdateStats();
-             return; // Only need to trigger once per batch of mutations
-        }
+      if (mutation.type === 'childList' || mutation.type === 'characterData') {
+        if (DEBUG) console.log('Selected character change observed, triggering debounced update...');
+        debouncedUpdateStats();
+        return; // Only need to trigger once per batch of mutations
+      }
     }
   });
 
   // Find the target element to observe - #rm_button_selected_ch seems appropriate
   const selectedCharElement = document.getElementById("rm_button_selected_ch");
   if (selectedCharElement) {
-      if (DEBUG) console.log('Observing #rm_button_selected_ch for mutations.');
-      // Observe changes to the children and subtree (like the h2 text changing)
-      selectedCharObserver.observe(selectedCharElement, {
-          childList: true,
-          subtree: true,
-          characterData: true // Observe text changes directly within nodes
-      });
+    if (DEBUG) console.log('Observing #rm_button_selected_ch for mutations.');
+    // Observe changes to the children and subtree (like the h2 text changing)
+    selectedCharObserver.observe(selectedCharElement, {
+      childList: true,
+      subtree: true,
+      characterData: true // Observe text changes directly within nodes
+    });
   } else {
-      console.error('#rm_button_selected_ch element not found for MutationObserver.');
+    console.error('#rm_button_selected_ch element not found for MutationObserver.');
   }
 
 
