@@ -156,22 +156,29 @@ jQuery(async () => {
 
   // 计算消息的字数
   function countWordsInMessage(message) {
-    const text = message.replace(/<[^>]*>/g, '');
-    const chineseChars = text.match(/[\u4e00-\u9fff]/g) || [];
-    const englishWords = text.match(/[a-zA-Z0-9]+/g) || [];
-    const chineseCount = chineseChars.length;
-    const englishCount = englishWords.length;
-    const totalCount = chineseCount + englishCount;
+    if (!message) return 0;
 
-    if (totalCount === 0) return 0;
+    let text = message;
 
-    const chineseRatio = chineseCount / totalCount;
-    const englishRatio = englishCount / totalCount;
+    // 1. 处理 <think> 标签：彻底移除 think 块及其内容
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
-    // 优化：中文按1字，英文按0.6字处理
-    const optimizedWordCount = chineseCount * 1 + englishCount * 0.6;
+    // 2. 处理 <content> 标签：如果存在，则优先只提取 content 块中的内容
+    const contentMatch = text.match(/<content>([\s\S]*?)<\/content>/i);
+    if (contentMatch) {
+      text = contentMatch[1];
+    }
 
-    return optimizedWordCount;
+    // 3. 移除所有 HTML 标签
+    text = text.replace(/<[^>]*>/g, '');
+
+    // 4. 统计字数
+    // 中/日/韩文字符计 1
+    const cjkChars = text.match(/[\u4e00-\u9fff\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g) || [];
+    // 英文单词/拉丁单词计 1 (连续的字母数字字符)
+    const latinWords = text.match(/[a-zA-Z0-9]+/g) || [];
+
+    return cjkChars.length + latinWords.length;
   }
 
   // 获取当前聊天的字数统计和大小
@@ -409,7 +416,7 @@ jQuery(async () => {
   }
 
   // 获取完整的统计数据
-  async function getFullStats(useAccurateMode = false) {
+  async function getFullStats() {
     const context = getContext();
     const characterId = context.characterId;
     if (characterId === undefined) {
@@ -606,27 +613,27 @@ jQuery(async () => {
         });
       }
 
-      // 如果启用精确模式，基于最大聊天文件的真实内容重新估算字数（原估算作为兜底）
-      if (useAccurateMode) {
-        try {
-          const sampledMessages = await fetchLargestChatFile(characterId);
-          if (Array.isArray(sampledMessages) && sampledMessages.length > 0) {
-            const contentStats = getStatsFromMessages(sampledMessages);
-            const preciseWords = Math.round(contentStats.user.words + contentStats.char.words);
-            if (preciseWords > 0) {
-              if (DEBUG) {
-                console.log('精确模式启用，使用最大聊天文件重新估算字数:', {
-                  preciseWords,
-                  previousEstimate: estimatedWords,
-                  sampledMessages: sampledMessages.length
-                });
-              }
-              estimatedWords = preciseWords;
-            }
+      // 始终尝试进行精确统计（基于最大聊天文件采样），采样结果作为兜底估算的修正
+      try {
+        const sampledMessages = await fetchLargestChatFile(characterId);
+        if (Array.isArray(sampledMessages) && sampledMessages.length > 0) {
+          const contentStats = getStatsFromMessages(sampledMessages);
+          const preciseWords = Math.round(contentStats.user.words + contentStats.char.words);
+
+          // 计算采样密度
+          let sampledRawSize = 0;
+          sampledMessages.forEach(m => {
+            sampledRawSize += JSON.stringify(m).length;
+          });
+
+          if (preciseWords > 0 && sampledRawSize > 0) {
+            const realDensity = preciseWords / (sampledRawSize / 1024); // 字/KB
+            if (DEBUG) console.log(`精确采样完成: 密度 ${realDensity.toFixed(2)} 字/KB, 基准大小 ${totalSizeKB.toFixed(2)} KB`);
+            estimatedWords = Math.round(totalSizeKB * realDensity);
           }
-        } catch (preciseError) {
-          console.error('精确统计模式计算失败，回退到原有估算逻辑:', preciseError);
         }
+      } catch (preciseError) {
+        console.error('精确统计模式计算失败，回退到原有估算逻辑:', preciseError);
       }
 
       // Additional check: If multiple files exist, are they all minimal (<=1 message)?
@@ -724,8 +731,7 @@ jQuery(async () => {
     const characterName = getCurrentCharacterName();
     $("#ccs-character").text(characterName);
     try {
-      const useAccurateMode = $("#ccs-accurate-mode").is(":checked");
-      const stats = await getFullStats(useAccurateMode);
+      const stats = await getFullStats();
       if (DEBUG) console.log('Stats received in updateStats:', stats);
 
       const chatFilesCount = stats.chatFilesCount || 0;
