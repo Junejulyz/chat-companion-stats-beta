@@ -28,14 +28,14 @@
   width: 100%;
   height: 100%;
   min-height: 100vh;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
 }
 
-#ccs-preview-modal > div {
+#ccs-preview-modal>div {
   background-color: var(--SmartThemeBlurTintColor);
   color: var(--SmartThemeBodyColor);
   padding: 20px;
@@ -66,52 +66,60 @@
 }
 
 .ccs-stats-container {
-    margin-bottom: 10px;
+  margin-bottom: 10px;
 }
 
 .ccs-stat-item {
-    margin-bottom: 5px;
-    display: flex;
-    align-items: center; /* Keep vertical alignment */
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  /* Keep vertical alignment */
 }
 
 /* Styles for share option checkboxes and labels */
 .ccs-share-option input[type="checkbox"] {
-    margin-right: 5px; /* Add some space between checkbox and label */
-    vertical-align: middle; /* Align checkbox vertically */
+  margin-right: 5px;
+  /* Add some space between checkbox and label */
+  vertical-align: middle;
+  /* Align checkbox vertically */
 }
 
 .ccs-share-option label {
-    vertical-align: middle; /* Align label vertically */
-    cursor: pointer; /* Indicate the label is clickable */
+  vertical-align: middle;
+  /* Align label vertically */
+  cursor: pointer;
+  /* Indicate the label is clickable */
 }
 
 /* Ensure stat values also align */
 .ccs-share-option .ccs-stat-value,
-.ccs-share-option .ccs-stat-label:not([for]) { /* Target the unit labels like '条', '字', '天' */
-    vertical-align: middle;
-    margin-left: 3px; /* Add a small gap after the main label */
+.ccs-share-option .ccs-stat-label:not([for]) {
+  /* Target the unit labels like '条', '字', '天' */
+  vertical-align: middle;
+  margin-left: 3px;
+  margin-top: .3em;
+  /* Add a small gap after the main label */
 }
 
 
 .ccs-tip {
-    margin-top: 10px;
-    padding: 8px;
-    background-color: var(--SmartThemeBlurTintColor);
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    font-size: 0.9em;
-    color: var(--SmartThemeBodyColor);
+  margin-top: 10px;
+  padding: 8px;
+  background-color: var(--SmartThemeBlurTintColor);
+  border: 1px solid var(--SmartThemeBorderColor);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: var(--SmartThemeBodyColor);
 }
 
 .ccs-tip-icon {
-    margin-right: 5px;
-    color: var(--SmartThemeEmColor);
+  margin-right: 5px;
+  color: var(--SmartThemeEmColor);
 }
 
 .ccs-tip-text {
-    flex: 1;
-    color: var(--SmartThemeBodyColor);
+  flex: 1;
+  color: var(--SmartThemeBodyColor);
 }
