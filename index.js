@@ -411,268 +411,158 @@ jQuery(async () => {
   // 获取完整的统计数据
   async function getFullStats() {
     const context = getContext();
-    const characterId = context.characterId;
-    if (characterId === undefined) {
-      if (DEBUG) console.log('未找到当前角色ID');
+    // 兼容不同版本的 SillyTavern 字段名
+    let characterId = context.characterId || context.character_id;
+
+    if (DEBUG) console.log('Current Context:', context);
+
+    if (!characterId) {
+      if (DEBUG) console.log('未从 context 找到角色ID, 尝试从 DOM/全局变量获取');
+      // 尝试从全局变量获取 (SillyTavern 常用变量)
+      if (typeof window.selected_character !== 'undefined' && window.characters && window.characters[window.selected_character]) {
+        characterId = window.characters[window.selected_character].avatar;
+      }
+    }
+
+    if (!characterId) {
+      if (DEBUG) console.log('仍然未找到当前角色ID');
       return {
         messageCount: 0,
         wordCount: 0,
         firstTime: null,
         totalDuration: 0,
-        totalSizeBytes: 0, // Change to return bytes
+        totalSizeBytes: 0,
         chatFilesCount: 0
       };
     }
 
     try {
       const chats = await getPastCharacterChats(characterId);
-      if (DEBUG) console.log('获取到的聊天记录:', chats);
+      if (DEBUG) console.log(`获取到 ${characterId} 的聊天记录:`, chats);
 
       let totalMessagesFromChats = 0;
       let totalSizeKB = 0;
       let earliestTime = null;
       let totalDurationSeconds = 0;
-      let totalSizeBytesRaw = 0; // Variable to store raw bytes
+      let totalSizeBytesRaw = 0;
       const chatFilesCount = Array.isArray(chats) ? chats.length : 0;
 
-      chats.forEach(chat => {
-        totalMessagesFromChats += chat.chat_items || 0;
-
-        // 计算文件大小 (store raw bytes)
-        const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
-        const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
-        const sizeMatchBytes = chat.file_size?.match(/^(\d+)$/); // Match plain bytes
-
-        if (sizeMatchMB) {
-          totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
-        } else if (sizeMatchKB) {
-          totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
-        } else if (sizeMatchBytes) {
-          totalSizeBytesRaw += parseInt(sizeMatchBytes[1], 10);
-        } else if (chat.file_size) {
-          // Attempt to parse if it's just a number (assume bytes)
-          const sizeAsNumber = parseFloat(chat.file_size);
-          if (!isNaN(sizeAsNumber)) {
-            totalSizeBytesRaw += sizeAsNumber;
-          } else {
-            console.warn(`Could not parse file size: ${chat.file_size}`);
-          }
-        }
-
-        // --- Calculate totalSizeKB (for word count estimation) --- ADDED BACK
-        // This specifically looks for the "KB" unit in the original string
-        const sizeMatchKB_est = chat.file_size?.match(/([\d.]+)\s*KB/i);
-        if (sizeMatchKB_est) {
-          totalSizeKB += parseFloat(sizeMatchKB_est[1]);
-        }
-        // Note: We are intentionally *not* converting MB or Bytes here for the estimation logic,
-        // as it historically relied only on the KB value provided by the API.
-
-
-        // 获取最早时间 using the robust parser
-        if (chat.last_mes) {
-          if (DEBUG) console.log('Processing chat with last_mes:', chat.last_mes);
-          const date = parseSillyTavernDate(chat.last_mes);
-          if (DEBUG) console.log('Parsed date:', date);
-          if (date) {
-            if (!earliestTime || date < earliestTime) {
-              earliestTime = date;
-              if (DEBUG) console.log('Updated earliestTime to:', earliestTime);
-            }
-          } else if (chat.last_mes) {
-            if (DEBUG) console.warn(`Could not parse date format: ${chat.last_mes}`);
-          }
-        }
-
-        // 从文件名解析时间
-        if (chat.file_name) {
-          const timeInfo = parseTimeFromFilename(chat.file_name);
-          if (timeInfo) {
-            totalDurationSeconds += timeInfo.totalSeconds;
-            console.log('Added duration from file:', timeInfo);
-          }
-        }
-      });
-
-      // 获取当前聊天的统计信息
-      const currentStats = getCurrentChatStats();
-      if (DEBUG) console.log('当前聊天统计:', currentStats);
-
-      // 计算当前聊天的总字数和总大小
-      const totalWords = currentStats.user.words + currentStats.char.words;
-      const totalSizeBytes = currentStats.user.size + currentStats.char.size;
-      const currentMessageCount = currentStats.user.count + currentStats.char.count;
-
-      // 计算估算字数
-      let estimatedWords = 0;
-
-      // 如果当前聊天消息数量少（<=2）且有历史文件，使用基于历史元数据的估算
-      if (currentMessageCount <= 2 && chats && chats.length > 0 && totalMessagesFromChats > 0) {
-        if (DEBUG) console.log(`当前消息数 (${currentMessageCount}) <= 2，使用历史元数据估算...`);
-        // 1. 使用默认密度估算历史总字数
-        const historicalWordsEstimateFromSize = totalSizeKB * 32.5; // Default density
-        // 2. 计算历史平均每条消息字数
-        const historicalAvgWordsPerMessage = historicalWordsEstimateFromSize / totalMessagesFromChats;
-        // 3. 使用历史平均字数 * 总历史消息数 作为最终估算
-        estimatedWords = Math.round(totalMessagesFromChats * historicalAvgWordsPerMessage);
-
-        if (DEBUG) {
-          console.log(`使用历史元数据估算:`);
-          console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-          console.log(`- 历史平均字数 (估算): ${historicalAvgWordsPerMessage.toFixed(2)}字/条`);
-          console.log(`- 最终估算: ${estimatedWords}字`);
-        }
-      }
-      // 如果当前聊天有足够消息 (>2)，使用当前聊天综合估算 (区分用户/角色)
-      else if (currentMessageCount > 2) {
-        if (DEBUG) console.log(`当前消息数 (${currentMessageCount}) > 2，使用当前聊天综合估算...`);
-
-        // Check if we have stats for both user and character in the current chat
-        if (currentStats.user.count > 0 && currentStats.char.count > 0 && totalSizeBytes > 0) {
-          if (DEBUG) console.log(`区分用户/角色进行估算...`);
-          // Calculate separate stats based on current chat
-          const userWordsPerKB = currentStats.user.size > 0 ? currentStats.user.words / (currentStats.user.size / 1024) : 0;
-          const userAvgWords = currentStats.user.words / currentStats.user.count;
-          const charWordsPerKB = currentStats.char.size > 0 ? currentStats.char.words / (currentStats.char.size / 1024) : 0;
-          const charAvgWords = currentStats.char.words / currentStats.char.count;
-
-          // Estimate historical split (simple 50/50 for messages, ratio-based for size)
-          const histUserMessages = totalMessagesFromChats / 2;
-          const histCharMessages = totalMessagesFromChats / 2;
-          const currentUserSizeRatio = currentStats.user.size / totalSizeBytes;
-          const histUserSizeKB = totalSizeKB * currentUserSizeRatio;
-          const histCharSizeKB = totalSizeKB * (1 - currentUserSizeRatio);
-
-          // Estimate using separate densities
-          const densityEstimate = (histUserSizeKB * userWordsPerKB) + (histCharSizeKB * charWordsPerKB);
-          // Estimate using separate averages
-          const avgEstimate = (histUserMessages * userAvgWords) + (histCharMessages * charAvgWords);
-
-          // Use the minimum of the two refined estimates
-          estimatedWords = Math.min(Math.round(densityEstimate), Math.round(avgEstimate));
-
-          if (DEBUG) {
-            console.log(`使用区分用户/角色的综合估算:`);
-            console.log(`- 当前用户: ${currentStats.user.words.toFixed(1)}字, ${(currentStats.user.size / 1024).toFixed(2)}KB, ${currentStats.user.count}条`);
-            console.log(`  - 用户密度: ${userWordsPerKB.toFixed(2)}字/KB, 用户平均: ${userAvgWords.toFixed(2)}字/条`);
-            console.log(`- 当前角色: ${currentStats.char.words.toFixed(1)}字, ${(currentStats.char.size / 1024).toFixed(2)}KB, ${currentStats.char.count}条`);
-            console.log(`  - 角色密度: ${charWordsPerKB.toFixed(2)}字/KB, 角色平均: ${charAvgWords.toFixed(2)}字/条`);
-            console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-            console.log(`  - 估算历史用户: ${histUserMessages.toFixed(0)}条, ${histUserSizeKB.toFixed(2)}KB`);
-            console.log(`  - 估算历史角色: ${histCharMessages.toFixed(0)}条, ${histCharSizeKB.toFixed(2)}KB`);
-            console.log(`- 密度估算(分开): ${Math.round(densityEstimate)}字`);
-            console.log(`- 平均估算(分开): ${Math.round(avgEstimate)}字`);
-            console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
-          }
-
-        } else {
-          // Fallback to simpler combined estimation if current chat is one-sided or has zero size
-          if (DEBUG) console.log(`当前聊天样本不均衡或大小为零，回退到简单综合估算...`);
-          const wordsPerKB = totalSizeBytes > 0 ? totalWords / (totalSizeBytes / 1024) : 0;
-          const avgWordsPerMessage = totalWords / currentMessageCount;
-          const estimateByDensity = totalSizeKB * wordsPerKB;
-          const estimateByAvgWords = avgWordsPerMessage * totalMessagesFromChats;
-          estimatedWords = Math.min(Math.round(estimateByDensity), Math.round(estimateByAvgWords));
-
-          if (DEBUG) {
-            console.log(`使用简单综合估算:`);
-            console.log(`- 当前聊天: ${totalWords}字, ${(totalSizeBytes / 1024).toFixed(2)}KB, ${currentMessageCount}条消息`);
-            console.log(`- 历史文件: ${totalMessagesFromChats}条消息, ${totalSizeKB.toFixed(2)}KB`);
-            console.log(`- 字数密度: ${wordsPerKB.toFixed(2)}字/KB`);
-            console.log(`- 平均字数: ${avgWordsPerMessage.toFixed(2)}字/条`);
-            console.log(`- 密度估算: ${Math.round(estimateByDensity)}字`);
-            console.log(`- 平均估算: ${Math.round(estimateByAvgWords)}字`);
-            console.log(`- 最终估算(取较小值): ${estimatedWords}字`);
-          }
-        }
-        if (DEBUG) {
-          console.log(`中英文比例 - 用户: 中文 ${(currentStats.user.chineseRatio * 100).toFixed(1)}%, 英文 ${(currentStats.user.englishRatio * 100).toFixed(1)}%`);
-          console.log(`中英文比例 - 角色: 中文 ${(currentStats.char.chineseRatio * 100).toFixed(1)}%, 英文 ${(currentStats.char.englishRatio * 100).toFixed(1)}%`);
-        }
-
-      } else {
-        // 兜底方案：用totalSizeKB × 30
-        estimatedWords = Math.round(totalSizeKB * 30);
-        if (DEBUG) console.log(`无采样数据，采用大小估算: ${estimatedWords}`);
-      }
-
-      if (DEBUG) {
-        console.log('统计结果:', {
-          totalMessages: totalMessagesFromChats,
-          estimatedWords,
-          earliestTime: (earliestTime && !isNaN(earliestTime.getTime())) ? earliestTime.toISOString() : null,
-          totalDurationSeconds,
-          totalSizeBytes: totalSizeBytesRaw // Include raw bytes in final log
-        });
-      }
-
-      // 真实全量统计：读取并计算所有有效的历史聊天文件
-      if (Array.isArray(chats) && chats.length > 0) {
-        let totalWordsCalculated = 0;
-        let totalMessagesCalculated = 0;
-
-        // 限制并发数量，避免请求过多导致卡死 (分批处理)
-        const batchSize = 10;
-        for (let i = 0; i < chats.length; i += batchSize) {
-          const batch = chats.slice(i, i + batchSize);
-          if (DEBUG) console.log(`Processing batch ${i / batchSize + 1}...`);
-          const results = await Promise.all(batch.map(chat => getChatFileStats(chat.file_name)));
-
-          results.forEach(res => {
-            totalWordsCalculated += res.words;
-            totalMessagesCalculated += res.count;
-          });
-        }
-
-        estimatedWords = totalWordsCalculated;
-        totalMessagesFromChats = totalMessagesCalculated;
-
-        if (DEBUG) console.log(`全量真实统计完成: 共 ${totalMessagesCalculated} 条消息, ${totalWordsCalculated} 字`);
-      }
-
-      // Additional check: If multiple files exist, are they all minimal (<=1 message)?
-      let allFilesAreMinimal = false;
-      if (chats && chats.length > 1) {
-        allFilesAreMinimal = chats.every(chat => (chat.chat_items || 0) <= 1);
-        if (allFilesAreMinimal) {
-          if (DEBUG) console.log(`检测到多个聊天文件，但每个文件消息数都 <= 1。`);
-        }
-      }
-
-      // Final check: Treat as no interaction if total messages <= 1 OR if all files are minimal
-      if (totalMessagesFromChats <= 1 || allFilesAreMinimal) {
-        if (DEBUG) console.log(`总消息数 (${totalMessagesFromChats}) <= 1 或所有文件消息数均 <= 1，重置统计数据为“尚未互动”状态。`);
+      if (chatFilesCount === 0) {
+        if (DEBUG) console.log('该角色尚无历史聊天记录');
         return {
           messageCount: 0,
           wordCount: 0,
           firstTime: null,
           totalDuration: 0,
           totalSizeBytes: 0,
+          chatFilesCount: 0
+        };
+      }
+
+      chats.forEach(chat => {
+        // 使用元数据作为基础值
+        totalMessagesFromChats += parseInt(chat.chat_items) || 0;
+
+        // 解析文件大小
+        const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
+        const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
+        const sizeAsNumber = parseFloat(chat.file_size);
+
+        if (sizeMatchMB) {
+          totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
+          totalSizeKB += parseFloat(sizeMatchMB[1]) * 1024;
+        } else if (sizeMatchKB) {
+          totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
+          totalSizeKB += parseFloat(sizeMatchKB[1]);
+        } else if (!isNaN(sizeAsNumber)) {
+          totalSizeBytesRaw += sizeAsNumber;
+          totalSizeKB += sizeAsNumber / 1024;
+        }
+
+        // 解析初遇时间
+        if (chat.last_mes) {
+          const date = parseSillyTavernDate(chat.last_mes);
+          if (date && (!earliestTime || date < earliestTime)) {
+            earliestTime = date;
+          }
+        }
+
+        // 积累时长
+        if (chat.file_name) {
+          const timeInfo = parseTimeFromFilename(chat.file_name);
+          if (timeInfo) totalDurationSeconds += timeInfo.totalSeconds;
+        }
+      });
+
+      // 默认先使用估算值 (密度取 32.5)
+      let estimatedWords = Math.round(totalSizeKB * 32.5);
+
+      // 尝试进行真实全量统计
+      try {
+        let totalWordsCalculated = 0;
+        let totalMessagesCalculated = 0;
+        let successCount = 0;
+
+        const batchSize = 10;
+        for (let i = 0; i < chats.length; i += batchSize) {
+          const batch = chats.slice(i, i + batchSize);
+          const results = await Promise.all(batch.map(chat => getChatFileStats(chat.file_name)));
+
+          results.forEach(res => {
+            if (res.count > 0 || res.words > 0) {
+              totalWordsCalculated += res.words;
+              totalMessagesCalculated += res.count;
+              successCount++;
+            }
+          });
+        }
+
+        // 如果成功获取到了任何实际数据，则覆盖元数据估值
+        if (successCount > 0) {
+          estimatedWords = totalWordsCalculated;
+          totalMessagesFromChats = totalMessagesCalculated;
+          if (DEBUG) console.log(`全量真实统计覆盖成功: ${totalWordsCalculated} 字`);
+        } else {
+          if (DEBUG) console.warn('全量读取失败或无有效内容，保持元数据估算值');
+        }
+      } catch (sumError) {
+        if (DEBUG) console.error('全量统计过程出错:', sumError);
+      }
+
+      // 如果没有任何消息，直接返回 0 状态
+      if (totalMessagesFromChats === 0) {
+        return {
+          messageCount: 0,
+          wordCount: 0,
+          firstTime: earliestTime,
+          totalDuration: totalDurationSeconds,
+          totalSizeBytes: totalSizeBytesRaw,
           chatFilesCount
         };
       }
 
-      // Otherwise, return the calculated stats
       return {
         messageCount: totalMessagesFromChats,
         wordCount: estimatedWords,
         firstTime: earliestTime,
         totalDuration: totalDurationSeconds,
-        totalSizeBytes: totalSizeBytesRaw, // Return raw bytes
+        totalSizeBytes: totalSizeBytesRaw,
         chatFilesCount
       };
     } catch (error) {
-      console.error('获取统计数据失败:', error);
+      if (DEBUG) console.error('getFullStats 运行出错:', error);
       return {
         messageCount: 0,
         wordCount: 0,
         firstTime: null,
         totalDuration: 0,
-        totalSizeBytes: 0, // Return default on error
+        totalSizeBytes: 0,
         chatFilesCount: 0
       };
     }
   }
+
+
 
   // Debounce function
   function debounce(func, wait) {
