@@ -94,6 +94,9 @@
 .ccs-share-option label {
   cursor: pointer;
   white-space: nowrap;
+  margin: 0 !important;
+  /* Override SillyTavern's default margin-top: .3em */
+  display: inline-block;
 }
 
 /* Ensure stat values also align */
@@ -107,6 +110,7 @@
 
 .ccs-stat-label {
   white-space: nowrap;
+  margin: 0 !important;
 }
 
 
