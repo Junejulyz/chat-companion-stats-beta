@@ -3,7 +3,7 @@ import { getPastCharacterChats } from '../../../../script.js';
 
 const extensionName = "chat-companion-stats";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
-const DEBUG = false;
+const DEBUG = true;
 
 jQuery(async () => {
   // 加载CSS文件 using dynamic path
@@ -160,25 +160,34 @@ jQuery(async () => {
 
     let text = message;
 
-    // 1. 深度正则过滤 (排除各种噪音)
-    // - 排除 think/thinking 块
-    text = text.replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '');
-    // - 排除元数据标签如 [finire], <finish>, <disclaimer>
-    text = text.replace(/\[finire\]/gi, '');
-    text = text.replace(/<(finish|disclaimer)>[\s\S]*?<\/\1>/gi, '');
-    // - 排除 HTML 注释 (包括 draft/confirm)
-    text = text.replace(/<!--[\s\S]*?-->/g, '');
-    // - 排除特定的系统/UI标签如 <DH_...>, <FH_...>
-    text = text.replace(/<(DH|FH)_[^>]*>/gi, '');
-    // - 排除特定的样式标记
-    text = text.replace(/(?<=<p style)-/gi, '');
+    // 1. 深度正则过滤 (使用制作人排除法)
+    try {
+      // - 排除 think/thinking 块 (处理已完成和未完成的)
+      text = text.replace(/<(think|thinking)>[\s\S]*?(<\/\1>|$)/gi, '');
+
+      // - 排除元数据标签及其中间内容
+      text = text.replace(/\[finire\]/gi, '');
+      text = text.replace(/<(finish|disclaimer)>[\s\S]*?(<\/\1>|$)/gi, '');
+
+      // - 排除 HTML 注释 (包括 draft/confirm)
+      text = text.replace(/<!--[\s\S]*?-->/g, '');
+
+      // - 排除特定的系统/UI标签如 <DH_...>, <FH_...>
+      text = text.replace(/<(DH|FH)_[^>]*>/gi, '');
+
+      // - 排除特定的样式标记 (处理可能的兼容性)
+      text = text.replace(/<p style[^>]*>/gi, '');
+    } catch (reError) {
+      if (DEBUG) console.warn('Regex filtering failed for a message:', reError);
+    }
+
     // - 移除所有剩余的 HTML 标签
     text = text.replace(/<[^>]*>/g, '');
 
     // 2. 统计处理
-    // 中/日/韩文字符计 1
+    // 中/日/韩文字符
     const cjkChars = text.match(/[\u4e00-\u9fff\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g) || [];
-    // 英文单词/拉丁单词计 1
+    // 英文单词/拉丁单词
     const latinWords = text.match(/[a-zA-Z0-9]+/g) || [];
 
     return cjkChars.length + latinWords.length;
@@ -262,42 +271,62 @@ jQuery(async () => {
     };
   }
 
-  // 构建文件读取路径
-  function getChatFilePath(fileName) {
+  // 构建针对特定路径的 fetch 请求
+  async function fetchChatFile(path) {
+    try {
+      if (DEBUG) console.log(`Attempting fetch: ${path}`);
+      const response = await fetch(path, { credentials: 'same-origin' });
+      if (response.ok) {
+        return await response.text();
+      }
+      if (DEBUG) console.warn(`Fetch failed for ${path}: ${response.status}`);
+    } catch (e) {
+      if (DEBUG) console.error(`Fetch error for ${path}:`, e);
+    }
+    return null;
+  }
+
+  // 获取单个聊天文件的统计数据 (带有路径回退逻辑)
+  async function getChatFileStats(fileName) {
     const context = getContext();
     const charId = context.characterId;
     const encodedFileName = encodeURIComponent(fileName);
+    let text = null;
 
+    // 尝试方式 1: 基于 characterId (头像文件名)
     if (charId && typeof charId === 'string' && charId !== '0') {
       const lastDotIndex = charId.lastIndexOf('.');
       const folderName = lastDotIndex > 0 ? charId.substring(0, lastDotIndex) : charId;
-      return `/chats/${folderName}/${encodedFileName}`;
+      text = await fetchChatFile(`/chats/${folderName}/${encodedFileName}`);
     }
 
-    const characterName = fileName.split(' - ')[0];
-    return `/chats/${encodeURIComponent(characterName)}/${encodedFileName}`;
-  }
+    // 尝试方式 2: 基于角色名 (从文件名解析)
+    if (!text) {
+      const characterName = fileName.split(' - ')[0];
+      text = await fetchChatFile(`/chats/${encodeURIComponent(characterName)}/${encodedFileName}`);
+    }
 
-  // 获取单个聊天文件的统计数据
-  async function getChatFileStats(fileName) {
-    const path = getChatFilePath(fileName);
+    if (!text) return { words: 0, count: 0 };
+
     try {
-      const response = await fetch(path, { credentials: 'same-origin' });
-      if (!response.ok) return { words: 0, count: 0 };
-
-      const text = await response.text();
       const lines = text.trim().split('\n').filter(l => l.trim());
       let totalWords = 0;
+      let validMessages = 0;
 
       lines.forEach(line => {
         try {
           const m = JSON.parse(line);
-          totalWords += countWordsInMessage(m.mes || '');
+          // 确保是有效的消息对象
+          if (m && (m.mes !== undefined || m.is_user !== undefined)) {
+            totalWords += countWordsInMessage(m.mes || '');
+            validMessages++;
+          }
         } catch (e) { }
       });
 
-      return { words: totalWords, count: lines.length };
+      return { words: totalWords, count: validMessages };
     } catch (e) {
+      if (DEBUG) console.error(`Parsing error for chat ${fileName}:`, e);
       return { words: 0, count: 0 };
     }
   }
@@ -582,13 +611,18 @@ jQuery(async () => {
         let totalWordsCalculated = 0;
         let totalMessagesCalculated = 0;
 
-        // 使用 Promise.all 并发获取统计数据
-        const results = await Promise.all(chats.map(chat => getChatFileStats(chat.file_name)));
+        // 限制并发数量，避免请求过多导致卡死 (分批处理)
+        const batchSize = 10;
+        for (let i = 0; i < chats.length; i += batchSize) {
+          const batch = chats.slice(i, i + batchSize);
+          if (DEBUG) console.log(`Processing batch ${i / batchSize + 1}...`);
+          const results = await Promise.all(batch.map(chat => getChatFileStats(chat.file_name)));
 
-        results.forEach(res => {
-          totalWordsCalculated += res.words;
-          totalMessagesCalculated += res.count;
-        });
+          results.forEach(res => {
+            totalWordsCalculated += res.words;
+            totalMessagesCalculated += res.count;
+          });
+        }
 
         estimatedWords = totalWordsCalculated;
         totalMessagesFromChats = totalMessagesCalculated;
