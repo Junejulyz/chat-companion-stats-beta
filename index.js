@@ -154,28 +154,31 @@ jQuery(async () => {
     }
   }
 
-  // 计算消息的字数
+  // 计算消息的字数 (核心过滤逻辑)
   function countWordsInMessage(message) {
     if (!message) return 0;
 
     let text = message;
 
-    // 1. 处理 <think> 标签：彻底移除 think 块及其内容
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
-
-    // 2. 处理 <content> 标签：如果存在，则优先只提取 content 块中的内容
-    const contentMatch = text.match(/<content>([\s\S]*?)<\/content>/i);
-    if (contentMatch) {
-      text = contentMatch[1];
-    }
-
-    // 3. 移除所有 HTML 标签
+    // 1. 深度正则过滤 (排除各种噪音)
+    // - 排除 think/thinking 块
+    text = text.replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '');
+    // - 排除元数据标签如 [finire], <finish>, <disclaimer>
+    text = text.replace(/\[finire\]/gi, '');
+    text = text.replace(/<(finish|disclaimer)>[\s\S]*?<\/\1>/gi, '');
+    // - 排除 HTML 注释 (包括 draft/confirm)
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+    // - 排除特定的系统/UI标签如 <DH_...>, <FH_...>
+    text = text.replace(/<(DH|FH)_[^>]*>/gi, '');
+    // - 排除特定的样式标记
+    text = text.replace(/(?<=<p style)-/gi, '');
+    // - 移除所有剩余的 HTML 标签
     text = text.replace(/<[^>]*>/g, '');
 
-    // 4. 统计字数
+    // 2. 统计处理
     // 中/日/韩文字符计 1
     const cjkChars = text.match(/[\u4e00-\u9fff\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g) || [];
-    // 英文单词/拉丁单词计 1 (连续的字母数字字符)
+    // 英文单词/拉丁单词计 1
     const latinWords = text.match(/[a-zA-Z0-9]+/g) || [];
 
     return cjkChars.length + latinWords.length;
@@ -259,82 +262,43 @@ jQuery(async () => {
     };
   }
 
-  // 获取最大的聊天文件内容
-  async function fetchLargestChatFile(characterId) {
-    const chats = await getPastCharacterChats(characterId);
+  // 构建文件读取路径
+  function getChatFilePath(fileName) {
+    const context = getContext();
+    const charId = context.characterId;
+    const encodedFileName = encodeURIComponent(fileName);
 
-    if (!chats || chats.length === 0) return null;
+    if (charId && typeof charId === 'string' && charId !== '0') {
+      const lastDotIndex = charId.lastIndexOf('.');
+      const folderName = lastDotIndex > 0 ? charId.substring(0, lastDotIndex) : charId;
+      return `/chats/${folderName}/${encodedFileName}`;
+    }
 
-    // 找最大文件
-    const largestChat = chats.reduce((prev, current) => {
-      const prevSize = parseFloat(prev.file_size) || 0;
-      const currentSize = parseFloat(current.file_size) || 0;
-      return (currentSize > prevSize) ? current : prev;
-    });
+    const characterName = fileName.split(' - ')[0];
+    return `/chats/${encodeURIComponent(characterName)}/${encodedFileName}`;
+  }
 
-    if (!largestChat || !largestChat.file_name) return null;
-
+  // 获取单个聊天文件的统计数据
+  async function getChatFileStats(fileName) {
+    const path = getChatFilePath(fileName);
     try {
-      const context = getContext();
-      const charId = context.characterId;
-      const fullFileName = largestChat.file_name;
-      const encodedFullFileName = encodeURIComponent(fullFileName); // Encode filename once
+      const response = await fetch(path, { credentials: 'same-origin' });
+      if (!response.ok) return { words: 0, count: 0 };
 
-      let sampledMessages = null;
+      const text = await response.text();
+      const lines = text.trim().split('\n').filter(l => l.trim());
+      let totalWords = 0;
 
-      // --- Attempt 1: Use characterId (avatar filename) ---
-      if (DEBUG) console.log("fetchLargestChatFile: Attempt 1 using characterId:", charId);
-      if (charId && typeof charId === 'string' && charId !== '0') {
-        const lastDotIndex = charId.lastIndexOf('.');
-        const folderNameFromId = lastDotIndex > 0 ? charId.substring(0, lastDotIndex) : charId;
-        if (DEBUG) console.log("fetchLargestChatFile: Derived folder name from ID:", folderNameFromId);
-
-        const filePathById = `/chats/${folderNameFromId}/${encodedFullFileName}`;
-        if (DEBUG) console.log(`Attempt 1: Trying path: ${filePathById}`);
+      lines.forEach(line => {
         try {
-          const response = await fetch(filePathById, { credentials: 'same-origin' });
-          if (response.ok) {
-            if (DEBUG) console.log(`Attempt 1: Success fetching ${filePathById}`);
-            const text = await response.text();
-            const lines = text.trim().split('\n');
-            sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
-            return sampledMessages; // Success, return early
-          } else {
-            if (DEBUG) console.warn(`Attempt 1: Failed fetching ${filePathById}, Status: ${response.status}. Trying fallback.`);
-          }
-        } catch (fetchError) {
-          if (DEBUG) console.warn(`Attempt 1: Error during fetch for ${filePathById}:`, fetchError, ". Trying fallback.");
-        }
-      } else {
-        if (DEBUG) console.warn("Attempt 1: Invalid characterId found:", charId, ". Skipping ID-based path, trying fallback.");
-      }
+          const m = JSON.parse(line);
+          totalWords += countWordsInMessage(m.mes || '');
+        } catch (e) { }
+      });
 
-      // --- Attempt 2 (Fallback): Use encoded character name from filename ---
-      if (DEBUG) console.log("fetchLargestChatFile: Attempt 2 using encoded character name from filename.");
-      const characterNameFromName = fullFileName.split(' - ')[0];
-      const encodedCharacterName = encodeURIComponent(characterNameFromName);
-      const filePathByName = `/chats/${encodedCharacterName}/${encodedFullFileName}`; // Use encoded filename here too
-      if (DEBUG) console.log(`Attempt 2: Trying path: ${filePathByName}`);
-      try {
-        const response = await fetch(filePathByName, { credentials: 'same-origin' });
-        if (response.ok) {
-          if (DEBUG) console.log(`Attempt 2: Success fetching ${filePathByName}`);
-          const text = await response.text();
-          const lines = text.trim().split('\n');
-          sampledMessages = lines.slice(0, 100).map(line => JSON.parse(line));
-          return sampledMessages; // Success
-        } else {
-          if (DEBUG) console.warn(`Attempt 2: Failed fetching ${filePathByName}, Status: ${response.status}. Giving up.`);
-          return null; // Both attempts failed
-        }
-      } catch (fetchError) {
-        console.error(`Attempt 2: Error during fetch for ${filePathByName}:`, fetchError, ". Giving up.");
-        return null; // Both attempts failed
-      }
-
-    } catch (error) {
-      console.error("Error in fetchLargestChatFile logic:", error);
-      return null;
+      return { words: totalWords, count: lines.length };
+    } catch (e) {
+      return { words: 0, count: 0 };
     }
   }
 
@@ -613,27 +577,23 @@ jQuery(async () => {
         });
       }
 
-      // 始终尝试进行精确统计（基于最大聊天文件采样），采样结果作为兜底估算的修正
-      try {
-        const sampledMessages = await fetchLargestChatFile(characterId);
-        if (Array.isArray(sampledMessages) && sampledMessages.length > 0) {
-          const contentStats = getStatsFromMessages(sampledMessages);
-          const preciseWords = Math.round(contentStats.user.words + contentStats.char.words);
+      // 真实全量统计：读取并计算所有有效的历史聊天文件
+      if (Array.isArray(chats) && chats.length > 0) {
+        let totalWordsCalculated = 0;
+        let totalMessagesCalculated = 0;
 
-          // 计算采样密度
-          let sampledRawSize = 0;
-          sampledMessages.forEach(m => {
-            sampledRawSize += JSON.stringify(m).length;
-          });
+        // 使用 Promise.all 并发获取统计数据
+        const results = await Promise.all(chats.map(chat => getChatFileStats(chat.file_name)));
 
-          if (preciseWords > 0 && sampledRawSize > 0) {
-            const realDensity = preciseWords / (sampledRawSize / 1024); // 字/KB
-            if (DEBUG) console.log(`精确采样完成: 密度 ${realDensity.toFixed(2)} 字/KB, 基准大小 ${totalSizeKB.toFixed(2)} KB`);
-            estimatedWords = Math.round(totalSizeKB * realDensity);
-          }
-        }
-      } catch (preciseError) {
-        console.error('精确统计模式计算失败，回退到原有估算逻辑:', preciseError);
+        results.forEach(res => {
+          totalWordsCalculated += res.words;
+          totalMessagesCalculated += res.count;
+        });
+
+        estimatedWords = totalWordsCalculated;
+        totalMessagesFromChats = totalMessagesCalculated;
+
+        if (DEBUG) console.log(`全量真实统计完成: 共 ${totalMessagesCalculated} 条消息, ${totalWordsCalculated} 字`);
       }
 
       // Additional check: If multiple files exist, are they all minimal (<=1 message)?
