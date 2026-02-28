@@ -101,7 +101,7 @@
 
 /* Ensure stat values also align */
 .ccs-stat-value {
-  font-weight: bold;
+  font-weight: regular;
   margin-right: 4px;
   white-space: nowrap;
   overflow: hidden;

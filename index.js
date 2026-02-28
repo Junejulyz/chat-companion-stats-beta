@@ -775,292 +775,194 @@ jQuery(async () => {
   async function generateShareImage() {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
-    const baseWidth = 1200; // Keep width fixed
+    const width = 1000;
+    const height = 1200;
 
-    // --- Define constants for layout ---
-    const topSectionHeight = 600; // Increased again for more space below divider
-    const bottomPadding = 60;    // Padding below watermark
-    const watermarkHeight = 40;   // Approx height for watermark line
-    const lineHeight = 90;      // Height per stat line
+    canvas.width = width;
+    canvas.height = height;
 
-    // --- Get stat values ---
-    const characterName = $("#ccs-character").text();
-    const startDate = $("#ccs-start").text();
-    const messages = $("#ccs-messages").text();
-    const words = $("#ccs-words").text();
-    const days = $("#ccs-days").text();
-    const totalSize = $("#ccs-total-size").text(); // Get the formatted size from UI
+    // 1. 绘制高级感渐变背景
+    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#1a1c2c');
+    bgGradient.addColorStop(0.5, '#4a192c');
+    bgGradient.addColorStop(1, '#1a1c2c');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, width, height);
 
-    // --- Build array of STAT lines to draw based on selections ---
-    const statsToDraw = [];
-    const shareStartChecked = $("#ccs-share-start").is(":checked");
+    // 绘制装饰性光圈
+    ctx.globalAlpha = 0.3;
+    const glowGradient = ctx.createRadialGradient(width / 2, height / 3, 0, width / 2, height / 3, 600);
+    glowGradient.addColorStop(0, '#8b5cf6');
+    glowGradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = glowGradient;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalAlpha = 1.0;
 
-    if (shareStartChecked) {
-      statsToDraw.push(`与 ${characterName} 初遇于`);
-      statsToDraw.push(startDate);
-    } else {
-      statsToDraw.push(`与 ${characterName}`);
-    }
-    if ($("#ccs-share-messages").is(":checked")) {
-      statsToDraw.push(`共对话 ${messages} 条`);
-    }
-    if ($("#ccs-share-words").is(":checked")) {
-      statsToDraw.push(`共聊天约 ${words} 字`);
-    }
-    if ($("#ccs-share-days").is(":checked")) {
-      statsToDraw.push(`相伴 ${days} 天`);
-    }
-    // Add the new "回忆大小" stat if the corresponding UI element has a value, using the correct format
-    if (totalSize && totalSize !== '--' && $("#ccs-share-size").is(":checked")) { // Check a new checkbox ID
-      // Ensure the format is "回忆大小: X.XX MB/KB/B"
-      statsToDraw.push(`回忆大小 ${totalSize}`); // totalSize already includes the formatted size and unit from updateStats
-    }
-
-    // --- Calculate dynamic height ---
-    const statsTextHeight = statsToDraw.length * lineHeight;
-    const calculatedHeight = topSectionHeight + statsTextHeight + watermarkHeight + bottomPadding;
-
-    // --- Set canvas dimensions ---
-    canvas.width = baseWidth;
-    canvas.height = calculatedHeight; // Set dynamic height
-
-    // --- Start Drawing ---
-    // 绘制背景
-    ctx.fillStyle = '#1f2937';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 添加渐变边框 (using dynamic height)
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, '#3b82f6');
-    gradient.addColorStop(1, '#8b5cf6');
-    ctx.strokeStyle = gradient;
-    ctx.lineWidth = 12; // Increased border width
-    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12); // Use dynamic height
-
-    // 加载头像
+    // 2. 加载头像数据
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
 
-    const avatarY = 140; // Doubled
-    const spacing = 400; // Doubled
-    const avatarWidth = 180; // Doubled
-    const avatarHeight = 240; // Doubled
-    const cornerRadius = 20; // Doubled
+    let charImg = null;
+    let userImg = null;
 
-    // 预加载两个头像
-    let characterAvatar = null;
-    let userAvatar = null;
-
-    if (avatarUrl) {
-      try {
-        characterAvatar = await new Promise((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = avatarUrl;
-        });
-      } catch (error) {
-        console.error('加载角色头像失败:', error);
-      }
-    }
-
-    if (userAvatarUrl) {
-      try {
-        userAvatar = await new Promise((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = userAvatarUrl;
-        });
-      } catch (error) {
-        console.error('加载用户头像失败:', error);
-      }
-    }
-
-    // 绘制圆角矩形函数
-    function drawRoundedRect(x, y, width, height, radius) {
-      ctx.beginPath();
-      ctx.moveTo(x + radius, y);
-      ctx.lineTo(x + width - radius, y);
-      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-      ctx.lineTo(x + width, y + height - radius);
-      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-      ctx.lineTo(x + radius, y + height);
-      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-      ctx.lineTo(x, y + radius);
-      ctx.quadraticCurveTo(x, y, x + radius, y);
-      ctx.closePath();
-    }
-
-    // 绘制链接符号
-    function drawChainSymbol(x, y) {
-      const symbolSize = 60;  // Doubled: 调整锁的整体大小
-      ctx.save();
-      ctx.translate(x, y);
-
-      // 创建渐变
-      const lockGradient = ctx.createLinearGradient(-symbolSize / 2, -symbolSize / 2, symbolSize / 2, symbolSize / 2);
-      lockGradient.addColorStop(0, '#3b82f6');
-      lockGradient.addColorStop(1, '#8b5cf6');
-
-      ctx.strokeStyle = lockGradient;
-      ctx.fillStyle = lockGradient;
-      ctx.lineWidth = 6; // Doubled
-
-      // 绘制锁的拱形顶部
-      const archWidth = symbolSize * 0.6;
-      const archHeight = symbolSize * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(-archWidth / 2, -symbolSize / 4);
-      ctx.bezierCurveTo(
-        -archWidth / 2, -symbolSize / 2,
-        archWidth / 2, -symbolSize / 2,
-        archWidth / 2, -symbolSize / 4
-      );
-      ctx.stroke();
-
-      // 绘制锁的主体（圆角矩形）
-      const lockWidth = symbolSize * 0.7;
-      const lockHeight = symbolSize * 0.6;
-      ctx.beginPath();
-      const radius = 10; // Doubled
-      ctx.moveTo(-lockWidth / 2 + radius, -symbolSize / 4);
-      ctx.lineTo(lockWidth / 2 - radius, -symbolSize / 4);
-      ctx.quadraticCurveTo(lockWidth / 2, -symbolSize / 4, lockWidth / 2, -symbolSize / 4 + radius);
-      ctx.lineTo(lockWidth / 2, -symbolSize / 4 + lockHeight - radius);
-      ctx.quadraticCurveTo(lockWidth / 2, -symbolSize / 4 + lockHeight, lockWidth / 2 - radius, -symbolSize / 4 + lockHeight);
-      ctx.lineTo(-lockWidth / 2 + radius, -symbolSize / 4 + lockHeight);
-      ctx.quadraticCurveTo(-lockWidth / 2, -symbolSize / 4 + lockHeight, -lockWidth / 2, -symbolSize / 4 + lockHeight - radius);
-      ctx.lineTo(-lockWidth / 2, -symbolSize / 4 + radius);
-      ctx.quadraticCurveTo(-lockWidth / 2, -symbolSize / 4, -lockWidth / 2 + radius, -symbolSize / 4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      // 绘制锁孔
-      ctx.beginPath();
-      ctx.arc(0, 0, 6, 0, Math.PI * 2); // Doubled radius
-      ctx.fillStyle = '#1f2937';  // 使用背景色
-      ctx.fill();
-
-      // 绘制锁孔下方的线
-      ctx.beginPath();
-      ctx.moveTo(0, 6); // Doubled y start
-      ctx.lineTo(0, 16); // Doubled y end
-      ctx.strokeStyle = '#1f2937';
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
-    // 绘制头像函数
-    function drawAvatar(img, x, isCharacter) {
-      // 绘制背景板
-      ctx.fillStyle = '#2a3441';
-      drawRoundedRect(x, avatarY, avatarWidth, avatarHeight, cornerRadius);
-      ctx.fill();
-
-      // 绘制头像边框
-      const borderGradient = ctx.createLinearGradient(x, avatarY, x, avatarY + avatarHeight);
-      borderGradient.addColorStop(0, '#3b82f6');
-      borderGradient.addColorStop(1, '#8b5cf6');
-      ctx.strokeStyle = borderGradient;
-      ctx.lineWidth = 4; // Doubled
-      drawRoundedRect(x, avatarY, avatarWidth, avatarHeight, cornerRadius);
-      ctx.stroke();
-
-      // 绘制头像
-      if (img) {
-        ctx.save();
-        drawRoundedRect(x, avatarY, avatarWidth, avatarHeight, cornerRadius);
-        ctx.clip();
-        const scale = Math.max(avatarWidth / img.width, avatarHeight / img.height);
-        const scaledWidth = img.width * scale;
-        const scaledHeight = img.height * scale;
-        const drawX = x + (avatarWidth - scaledWidth) / 2;
-        const drawY = avatarY + (avatarHeight - scaledHeight) / 2;
-        ctx.drawImage(img, drawX, drawY, scaledWidth, scaledHeight);
-        ctx.restore();
-      }
-    }
-
-    const showUserAvatar = $("#ccs-share-user-avatar").is(":checked");
-
-    if (showUserAvatar) {
-      // Draw both avatars with spacing
-      const leftX = canvas.width / 2 - spacing / 2 - avatarWidth;
-      const rightX = canvas.width / 2 + spacing / 2;
-      drawAvatar(userAvatar, leftX, false);
-      drawAvatar(characterAvatar, rightX, true);
-
-      // Draw connecting line and symbol
-      const lineY = avatarY + avatarHeight / 2;
-      const lineStartX = leftX + avatarWidth + 20; // Doubled spacing
-      const lineEndX = rightX - 20; // Doubled spacing
-
-      // Draw gradient dashed line
-      const lineGradient = ctx.createLinearGradient(lineStartX, lineY, lineEndX, lineY);
-      lineGradient.addColorStop(0, '#3b82f6');
-      lineGradient.addColorStop(1, '#8b5cf6');
-      ctx.beginPath();
-      ctx.strokeStyle = lineGradient;
-      ctx.lineWidth = 4; // Doubled
-      ctx.setLineDash([10, 6]); // Doubled dash pattern
-      ctx.moveTo(lineStartX, lineY);
-      ctx.lineTo(lineEndX, lineY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Draw chain symbol
-      drawChainSymbol(canvas.width / 2, lineY);
-    } else {
-      // Draw only character avatar, centered
-      const centerX = canvas.width / 2;
-      const charAvatarX = centerX - avatarWidth / 2;
-      drawAvatar(characterAvatar, charAvatarX, true);
-      // Skip user avatar, line, and symbol
-    }
-
-    // 设置文本样式
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffffff';
-
-    // 绘制标题
-    ctx.font = 'bold 64px Arial'; // Doubled font size
-    ctx.fillText('我的羁绊', canvas.width / 2, 480); // Doubled y position
-
-    // 绘制分割线
-    ctx.beginPath();
-    ctx.strokeStyle = '#4b5563';
-    ctx.lineWidth = 4; // Doubled
-    const dividerY = 520; // Doubled: 分割线位置
-    ctx.moveTo(300, dividerY); // Doubled x start
-    ctx.lineTo(900, dividerY); // Doubled x end
-    ctx.stroke();
-
-    // 绘制统计信息
-    ctx.font = '52px Arial'; // Doubled font size
-    // Add watermark text
-    const watermarkText = `SillyTavern羁绊助手`;
-
-    // 调整文本起始绘制位置
-    const startDrawY = topSectionHeight; // Y position to start drawing the first stat line
-
-    // Draw the main stats text lines
-    statsToDraw.forEach((text, index) => {
-      const currentY = startDrawY + index * lineHeight;
-      ctx.font = '52px Arial';
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, canvas.width / 2, currentY);
+    const loadImg = (url) => new Promise((resolve) => {
+      if (!url) return resolve(null);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
     });
 
-    // Draw the watermark near the bottom
-    ctx.font = '32px Arial';
-    ctx.fillStyle = '#6b7280';
-    const watermarkY = canvas.height - bottomPadding; // Position near the bottom using dynamic height
-    ctx.fillText(watermarkText, canvas.width / 2, watermarkY);
+    [charImg, userImg] = await Promise.all([loadImg(avatarUrl), loadImg(userAvatarUrl)]);
 
+    // 3. 绘制头像区域
+    const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
+    const avatarSize = 220;
+    const centerY = 300;
+
+    function drawCircularAvatar(img, x, y, size, label) {
+      ctx.save();
+      // 阴影
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 30;
+      ctx.shadowOffsetY = 15;
+
+      // 外边框/光晕
+      ctx.beginPath();
+      ctx.arc(x, y, size / 2 + 8, 0, Math.PI * 2);
+      const ringGlow = ctx.createLinearGradient(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
+      ringGlow.addColorStop(0, '#3b82f6');
+      ringGlow.addColorStop(1, '#8b5cf6');
+      ctx.strokeStyle = ringGlow;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+
+      // 裁剪圆
+      ctx.beginPath();
+      ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+      ctx.clip();
+
+      if (img) {
+        const scale = Math.max(size / img.width, size / img.height);
+        const sw = img.width * scale;
+        const sh = img.height * scale;
+        ctx.drawImage(img, x - sw / 2, y - sh / 2, sw, sh);
+      } else {
+        ctx.fillStyle = '#2a3441';
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 绘制标签
+      ctx.font = 'bold 28px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, y + size / 2 + 60);
+    }
+
+    if (showUser) {
+      drawCircularAvatar(userImg, width / 2 - 200, centerY, avatarSize, '我');
+      drawCircularAvatar(charImg, width / 2 + 200, centerY, avatarSize, $("#ccs-character").text());
+
+      // 连接符号 - 细致的曲线包
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([10, 10]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 3;
+      ctx.moveTo(width / 2 - 80, centerY);
+      ctx.lineTo(width / 2 + 80, centerY);
+      ctx.stroke();
+
+      // 中间的核心图标 (一个极简的羁绊圆环)
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(width / 2, centerY, 20, 0, Math.PI * 2);
+      ctx.strokeStyle = '#8b5cf6';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#1a1c2c';
+      ctx.fill();
+      ctx.restore();
+    } else {
+      drawCircularAvatar(charImg, width / 2, centerY, avatarSize + 40, $("#ccs-character").text());
+    }
+
+    // 4. 绘制统计数据卡片
+    const stats = [
+      { id: 'ccs-share-start', label: '初遇', value: $("#ccs-start").text() },
+      { id: 'ccs-share-messages', label: '对话', value: $("#ccs-messages").text(), unit: '条' },
+      { id: 'ccs-share-words', label: '字数', value: $("#ccs-words").text(), unit: '字' },
+      { id: 'ccs-share-days', label: '相伴', value: $("#ccs-days").text(), unit: '天' },
+      { id: 'ccs-share-size', label: '大小', value: $("#ccs-total-size").text() }
+    ].filter(s => $(`#${s.id}`).is(":checked"));
+
+    const cardYStart = 580;
+    const cardGap = 30;
+    const cardHeight = 110;
+    const cardWidth = 700;
+    const cardX = (width - cardWidth) / 2;
+
+    stats.forEach((stat, i) => {
+      const y = cardYStart + i * (cardHeight + cardGap);
+
+      // 绘制半透明卡片背景
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+      ctx.shadowBlur = 10;
+
+      // 核心圆角矩形
+      const radius = 20;
+      ctx.beginPath();
+      ctx.moveTo(cardX + radius, y);
+      ctx.lineTo(cardX + cardWidth - radius, y);
+      ctx.quadraticCurveTo(cardX + cardWidth, y, cardX + cardWidth, y + radius);
+      ctx.lineTo(cardX + cardWidth, y + cardHeight - radius);
+      ctx.quadraticCurveTo(cardX + cardWidth, y + cardHeight, cardX + cardWidth - radius, y + cardHeight);
+      ctx.lineTo(cardX + radius, y + cardHeight);
+      ctx.quadraticCurveTo(cardX, y + cardHeight, cardX, y + cardHeight - radius);
+      ctx.lineTo(cardX, y + radius);
+      ctx.quadraticCurveTo(cardX, y, cardX + radius, y);
+      ctx.fill();
+
+      // 左边侧边装饰条
+      const sideGlow = ctx.createLinearGradient(cardX, y, cardX, y + cardHeight);
+      sideGlow.addColorStop(0, '#3b82f6');
+      sideGlow.addColorStop(1, '#8b5cf6');
+      ctx.fillStyle = sideGlow;
+      ctx.fillRect(cardX, y + 20, 6, cardHeight - 40);
+
+      // 文本绘制
+      ctx.textAlign = 'left';
+      ctx.font = '32px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillText(stat.label, cardX + 40, y + cardHeight / 2 + 10);
+
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 42px Arial';
+      ctx.fillStyle = '#ffffff';
+      const valStr = stat.value + (stat.unit || '');
+      ctx.fillText(valStr, cardX + cardWidth - 40, y + cardHeight / 2 + 15);
+
+      ctx.restore();
+    });
+
+    // 5. 顶部大标题
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 72px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.shadowColor = 'rgba(139, 92, 246, 0.5)';
+    ctx.shadowBlur = 20;
+    const titleGradient = ctx.createLinearGradient(width / 2 - 100, 80, width / 2 + 100, 160);
+    titleGradient.addColorStop(0, '#ffffff');
+    titleGradient.addColorStop(1, '#a78bfa');
+    ctx.fillStyle = titleGradient;
+    ctx.fillText('我们的羁绊回忆', width / 2, 120);
+    ctx.restore();
+
+    // 移除所有水印 (直接返回)
     return canvas.toDataURL('image/png');
   }
 
