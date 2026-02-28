@@ -3,7 +3,7 @@ import { getPastCharacterChats } from '../../../../script.js';
 
 const extensionName = "chat-companion-stats";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
-const DEBUG = true;
+const DEBUG = false;
 
 jQuery(async () => {
   // 加载CSS文件 using dynamic path

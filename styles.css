@@ -73,33 +73,40 @@
   margin-bottom: 8px;
   display: flex;
   align-items: center;
-  /* Keep vertical alignment */
+  flex-wrap: nowrap;
+  /* Prevent wrapping for better single-line look */
+  min-height: 24px;
+}
+
+/* Indentation for character row (no checkbox) */
+.ccs-stat-item:not(.ccs-share-option) {
+  padding-left: 18px;
+  /* Match checkbox + margin width */
 }
 
 /* Styles for share option checkboxes and labels */
 .ccs-share-option input[type="checkbox"] {
   margin-right: 5px;
-  margin-top: .3em;
-  /* Add some space between checkbox and label */
-  vertical-align: middle;
-  /* Align checkbox vertically */
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .ccs-share-option label {
-  vertical-align: middle;
-  /* Align label vertically */
   cursor: pointer;
-  /* Indicate the label is clickable */
+  white-space: nowrap;
 }
 
 /* Ensure stat values also align */
-.ccs-share-option .ccs-stat-value,
-.ccs-share-option .ccs-stat-label:not([for]) {
-  /* Target the unit labels like '条', '字', '天' */
-  vertical-align: middle;
-  margin-left: 3px;
-  margin-top: .3em;
-  /* Add a small gap after the main label */
+.ccs-stat-value {
+  font-weight: bold;
+  margin-right: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ccs-stat-label {
+  white-space: nowrap;
 }
 
 
