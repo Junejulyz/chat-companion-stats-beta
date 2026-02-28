@@ -79,6 +79,7 @@
 /* Styles for share option checkboxes and labels */
 .ccs-share-option input[type="checkbox"] {
   margin-right: 5px;
+  margin-top: .3em;
   /* Add some space between checkbox and label */
   vertical-align: middle;
   /* Align checkbox vertically */
