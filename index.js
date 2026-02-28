@@ -776,34 +776,18 @@ jQuery(async () => {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
     const width = 1000;
-    const height = 1200;
+    const height = 1300; // Slightly taller for cleaner spacing
 
     canvas.width = width;
     canvas.height = height;
 
-    // 1. 绘制高级感渐变背景
-    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-    bgGradient.addColorStop(0, '#1a1c2c');
-    bgGradient.addColorStop(0.5, '#4a192c');
-    bgGradient.addColorStop(1, '#1a1c2c');
-    ctx.fillStyle = bgGradient;
+    // 1. Instagram 风格背景 (极简白/浅灰)
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
-
-    // 绘制装饰性光圈
-    ctx.globalAlpha = 0.3;
-    const glowGradient = ctx.createRadialGradient(width / 2, height / 3, 0, width / 2, height / 3, 600);
-    glowGradient.addColorStop(0, '#8b5cf6');
-    glowGradient.addColorStop(1, 'transparent');
-    ctx.fillStyle = glowGradient;
-    ctx.fillRect(0, 0, width, height);
-    ctx.globalAlpha = 1.0;
 
     // 2. 加载头像数据
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
-
-    let charImg = null;
-    let userImg = null;
 
     const loadImg = (url) => new Promise((resolve) => {
       if (!url) return resolve(null);
@@ -814,33 +798,36 @@ jQuery(async () => {
       img.src = url;
     });
 
-    [charImg, userImg] = await Promise.all([loadImg(avatarUrl), loadImg(userAvatarUrl)]);
+    const [charImg, userImg] = await Promise.all([loadImg(avatarUrl), loadImg(userAvatarUrl)]);
 
-    // 3. 绘制头像区域
-    const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
-    const avatarSize = 220;
-    const centerY = 300;
-
-    function drawCircularAvatar(img, x, y, size, label) {
+    // 绘制 Instagram 风格渐变环
+    function drawInstagramRing(x, y, radius) {
       ctx.save();
-      // 阴影
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-      ctx.shadowBlur = 30;
-      ctx.shadowOffsetY = 15;
+      ctx.lineWidth = 8;
+      const grad = ctx.createLinearGradient(x - radius, y + radius, x + radius, y - radius);
+      grad.addColorStop(0, '#f09433');
+      grad.addColorStop(0.25, '#e6683c');
+      grad.addColorStop(0.5, '#dc2743');
+      grad.addColorStop(0.75, '#cc2366');
+      grad.addColorStop(1, '#bc1888');
 
-      // 外边框/光晕
+      ctx.strokeStyle = grad;
       ctx.beginPath();
-      ctx.arc(x, y, size / 2 + 8, 0, Math.PI * 2);
-      const ringGlow = ctx.createLinearGradient(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
-      ringGlow.addColorStop(0, '#3b82f6');
-      ringGlow.addColorStop(1, '#8b5cf6');
-      ctx.strokeStyle = ringGlow;
-      ctx.lineWidth = 6;
+      ctx.arc(x, y, radius + 8, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.restore();
+    }
 
-      // 裁剪圆
+    function drawCircularAvatar(img, x, y, size) {
+      const radius = size / 2;
+
+      // 绘制 Ins 渐变环
+      drawInstagramRing(x, y, radius);
+
+      ctx.save();
+      // 头像裁剪
       ctx.beginPath();
-      ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.clip();
 
       if (img) {
@@ -849,120 +836,87 @@ jQuery(async () => {
         const sh = img.height * scale;
         ctx.drawImage(img, x - sw / 2, y - sh / 2, sw, sh);
       } else {
-        ctx.fillStyle = '#2a3441';
+        ctx.fillStyle = '#f0f0f0';
         ctx.fill();
       }
       ctx.restore();
 
-      // 绘制标签
-      ctx.font = 'bold 28px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.textAlign = 'center';
-      ctx.fillText(label, x, y + size / 2 + 60);
+      // 白色分割细环 (Ins 风格特色)
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
+
+    // 3. 绘制头像区域 (居中对称)
+    const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
+    const avatarSize = 240;
+    const centerY = 320;
 
     if (showUser) {
-      drawCircularAvatar(userImg, width / 2 - 200, centerY, avatarSize, '我');
-      drawCircularAvatar(charImg, width / 2 + 200, centerY, avatarSize, $("#ccs-character").text());
+      drawCircularAvatar(userImg, width / 2 - 180, centerY, avatarSize);
+      drawCircularAvatar(charImg, width / 2 + 180, centerY, avatarSize);
 
-      // 连接符号 - 细致的曲线包
-      ctx.save();
-      ctx.beginPath();
-      ctx.setLineDash([10, 10]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.lineWidth = 3;
-      ctx.moveTo(width / 2 - 80, centerY);
-      ctx.lineTo(width / 2 + 80, centerY);
-      ctx.stroke();
-
-      // 中间的核心图标 (一个极简的羁绊圆环)
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.arc(width / 2, centerY, 20, 0, Math.PI * 2);
-      ctx.strokeStyle = '#8b5cf6';
-      ctx.lineWidth = 4;
-      ctx.stroke();
-      ctx.fillStyle = '#1a1c2c';
-      ctx.fill();
-      ctx.restore();
+      // 这里的“连接”在 Ins 风格中通常不需要图标，只要保持简洁
     } else {
-      drawCircularAvatar(charImg, width / 2, centerY, avatarSize + 40, $("#ccs-character").text());
+      drawCircularAvatar(charImg, width / 2, centerY, avatarSize + 40);
     }
 
-    // 4. 绘制统计数据卡片
+    // 4. 统计数据列表 (Ins 风格个人主页感)
     const stats = [
-      { id: 'ccs-share-start', label: '初遇', value: $("#ccs-start").text() },
-      { id: 'ccs-share-messages', label: '对话', value: $("#ccs-messages").text(), unit: '条' },
-      { id: 'ccs-share-words', label: '字数', value: $("#ccs-words").text(), unit: '字' },
-      { id: 'ccs-share-days', label: '相伴', value: $("#ccs-days").text(), unit: '天' },
-      { id: 'ccs-share-size', label: '大小', value: $("#ccs-total-size").text() }
+      { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text() },
+      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
+      { id: 'ccs-share-words', label: '累计字数', value: $("#ccs-words").text(), unit: '字' },
+      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
+      { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
     ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    const cardYStart = 580;
-    const cardGap = 30;
-    const cardHeight = 110;
-    const cardWidth = 700;
-    const cardX = (width - cardWidth) / 2;
+    const listYStart = 550;
+    const itemHeight = 120;
+    const listWidth = 800;
+    const listX = (width - listWidth) / 2;
 
     stats.forEach((stat, i) => {
-      const y = cardYStart + i * (cardHeight + cardGap);
+      const y = listYStart + i * itemHeight;
 
-      // 绘制半透明卡片背景
-      ctx.save();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-      ctx.shadowBlur = 10;
+      // 分割线
+      if (i > 0) {
+        ctx.strokeStyle = '#efefef';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(listX, y - 20);
+        ctx.lineTo(listX + listWidth, y - 20);
+        ctx.stroke();
+      }
 
-      // 核心圆角矩形
-      const radius = 20;
-      ctx.beginPath();
-      ctx.moveTo(cardX + radius, y);
-      ctx.lineTo(cardX + cardWidth - radius, y);
-      ctx.quadraticCurveTo(cardX + cardWidth, y, cardX + cardWidth, y + radius);
-      ctx.lineTo(cardX + cardWidth, y + cardHeight - radius);
-      ctx.quadraticCurveTo(cardX + cardWidth, y + cardHeight, cardX + cardWidth - radius, y + cardHeight);
-      ctx.lineTo(cardX + radius, y + cardHeight);
-      ctx.quadraticCurveTo(cardX, y + cardHeight, cardX, y + cardHeight - radius);
-      ctx.lineTo(cardX, y + radius);
-      ctx.quadraticCurveTo(cardX, y, cardX + radius, y);
-      ctx.fill();
-
-      // 左边侧边装饰条
-      const sideGlow = ctx.createLinearGradient(cardX, y, cardX, y + cardHeight);
-      sideGlow.addColorStop(0, '#3b82f6');
-      sideGlow.addColorStop(1, '#8b5cf6');
-      ctx.fillStyle = sideGlow;
-      ctx.fillRect(cardX, y + 20, 6, cardHeight - 40);
-
-      // 文本绘制
+      // 标签 (Ins Secondary Text)
       ctx.textAlign = 'left';
       ctx.font = '32px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-      ctx.fillText(stat.label, cardX + 40, y + cardHeight / 2 + 10);
+      ctx.fillStyle = '#8e8e8e'; // Ins grey info text
+      ctx.fillText(stat.label, listX, y + 40);
 
+      // 数值 (Ins Main Text)
       ctx.textAlign = 'right';
-      ctx.font = 'bold 42px Arial';
-      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 42px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = '#262626'; // Ins dark text
       const valStr = stat.value + (stat.unit || '');
-      ctx.fillText(valStr, cardX + cardWidth - 40, y + cardHeight / 2 + 15);
-
-      ctx.restore();
+      ctx.fillText(valStr, listX + listWidth, y + 45);
     });
 
-    // 5. 顶部大标题
-    ctx.save();
+    // 5. 顶部标题 (Ins 风格居中标题)
     ctx.textAlign = 'center';
-    ctx.font = 'bold 72px "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.shadowColor = 'rgba(139, 92, 246, 0.5)';
-    ctx.shadowBlur = 20;
-    const titleGradient = ctx.createLinearGradient(width / 2 - 100, 80, width / 2 + 100, 160);
-    titleGradient.addColorStop(0, '#ffffff');
-    titleGradient.addColorStop(1, '#a78bfa');
-    ctx.fillStyle = titleGradient;
+    ctx.font = '600 48px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = '#262626';
     ctx.fillText('我们的羁绊回忆', width / 2, 120);
-    ctx.restore();
 
-    // 移除所有水印 (直接返回)
+    // 6. 底部装饰 (仿 Ins 风格)
+    ctx.font = '400 24px Arial';
+    ctx.fillStyle = '#dbdbdb';
+    ctx.fillText('━━━━  SHARED MOMENTS  ━━━━', width / 2, height - 80);
+
     return canvas.toDataURL('image/png');
   }
 
