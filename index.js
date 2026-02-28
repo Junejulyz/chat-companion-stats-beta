@@ -312,6 +312,7 @@ jQuery(async () => {
       const lines = text.trim().split('\n').filter(l => l.trim());
       let totalWords = 0;
       let validMessages = 0;
+      let earliestTimeInFile = null;
 
       lines.forEach(line => {
         try {
@@ -320,14 +321,26 @@ jQuery(async () => {
           if (m && (m.mes !== undefined || m.is_user !== undefined)) {
             totalWords += countWordsInMessage(m.mes || '');
             validMessages++;
+
+            // 提取该文件的最早时间
+            if (m.send_date) {
+              const msgDate = parseSillyTavernDate(m.send_date);
+              if (msgDate && (!earliestTimeInFile || msgDate < earliestTimeInFile)) {
+                earliestTimeInFile = msgDate;
+              }
+            }
           }
         } catch (e) { }
       });
 
-      return { words: totalWords, count: validMessages };
+      return {
+        words: totalWords,
+        count: validMessages,
+        earliestTime: earliestTimeInFile
+      };
     } catch (e) {
       if (DEBUG) console.error(`Parsing error for chat ${fileName}:`, e);
-      return { words: 0, count: 0 };
+      return { words: 0, count: 0, earliestTime: null };
     }
   }
 
@@ -513,6 +526,11 @@ jQuery(async () => {
               totalWordsCalculated += res.words;
               totalMessagesCalculated += res.count;
               successCount++;
+
+              // 寻找绝对最早的初遇时间
+              if (res.earliestTime && (!earliestTime || res.earliestTime < earliestTime)) {
+                earliestTime = res.earliestTime;
+              }
             }
           });
         }
