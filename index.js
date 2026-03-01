@@ -912,59 +912,44 @@ jQuery(async () => {
       // Connection: Dashed Line
       ctx.save();
       const dashLen = 16 * scaleFactor;
-      ctx.setLineDash([dashLen * 0.4, dashLen * 0.6]); // Match the 40% gap logic
+      ctx.setLineDash([dashLen * 0.4, dashLen * 0.6]);
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 2 * scaleFactor;
 
-      // Envelope Icon Dimensions
       const iconW = 32 * scaleFactor;
       const iconH = 24 * scaleFactor;
       const ix = width / 2 - iconW / 2;
       const iy = centerY - iconH / 2;
-      const gap = 10 * scaleFactor; // Gap between dash and envelope
+      const gap = 10 * scaleFactor;
 
       ctx.beginPath();
-      // Left dash: from avatar to near envelope
       ctx.moveTo(leftX + avatarW + 10 * scaleFactor, centerY);
       ctx.lineTo(ix - gap, centerY);
-      // Right dash: from near envelope to character avatar
       ctx.moveTo(ix + iconW + gap, centerY);
       ctx.lineTo(rightX - 10 * scaleFactor, centerY);
       ctx.stroke();
       ctx.restore();
 
-      // Draw SVG Envelope
-      // Rect BG
+      // Envelope BG
       ctx.fillStyle = '#FFFFFF';
       roundRect(ix, iy, iconW, iconH, 6 * scaleFactor);
 
-      // Path (V shape)
+      // Envelope SVG Path
       ctx.strokeStyle = tealColor;
-      ctx.lineWidth = 2.5 * scaleFactor;
+      ctx.lineWidth = 2 * scaleFactor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      // SVG path d="M4 6L20 18L36 6" -> Scale proportionally
-      const p1 = { x: ix + (4 / 40) * iconW, y: iy + (6 / 30) * iconH };
-      const p2 = { x: ix + (20 / 40) * iconW, y: iy + (18 / 30) * iconH };
-      const p3 = { x: ix + (36 / 40) * iconW, y: iy + (6 / 30) * iconH };
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.lineTo(p3.x, p3.y);
+      ctx.moveTo(ix + (4 / 40) * iconW, iy + (6 / 30) * iconH);
+      ctx.lineTo(ix + (20 / 40) * iconW, iy + (18 / 30) * iconH);
+      ctx.lineTo(ix + (36 / 40) * iconW, iy + (6 / 30) * iconH);
       ctx.stroke();
     } else {
-      drawRoundedAvatar(charImg, (width - avatarW * 1.5) / 2, avatarY - 20, avatarW * 1.5, avatarH * 1.5, 24 * scaleFactor);
+      // 只有角色头像：样式与 showUser 保持一致 (100x150)，居中
+      drawRoundedAvatar(charImg, (width - avatarW) / 2, avatarY, avatarW, avatarH, 16 * scaleFactor);
     }
 
-    // 3. Character Name
-    const charName = getCurrentCharacterName();
-    ctx.textAlign = 'center';
-    ctx.fillStyle = tealColor;
-    // 使用 LXGW Neo XiHei, Weight 300
-    ctx.font = `300 ${34 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-    ctx.fillText(charName, width / 2, headerH + 60 * scaleFactor);
-
-    // 4. Stat Items
+    // 4. 内容区域计算 (为了垂直居中)
     const stats = [
       { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '') },
       { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
@@ -973,14 +958,30 @@ jQuery(async () => {
       { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
     ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    const startY = headerH + 110 * scaleFactor;
     const boxW = 540 * scaleFactor;
     const boxH = 68 * scaleFactor;
     const boxGap = 12 * scaleFactor;
     const boxX = (width - boxW) / 2;
 
+    const nameH = 60 * scaleFactor; // 角色名占高度
+    const totalContentH = nameH + stats.length * boxH + (stats.length > 0 ? (stats.length - 1) * boxGap : 0);
+    const whiteAreaH = height - headerH;
+
+    // 动态起始位置 (居中计算)
+    const contentStartY = headerH + (whiteAreaH - totalContentH) / 2;
+
+    // 绘制角色名
+    const charName = getCurrentCharacterName();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = tealColor;
+    ctx.font = `300 ${34 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+    ctx.fillText(charName, width / 2, contentStartY + 35 * scaleFactor);
+
+    // 绘制统计项
+    const statsStartY = contentStartY + nameH;
+
     stats.forEach((stat, i) => {
-      const cy = startY + i * (boxH + boxGap);
+      const cy = statsStartY + i * (boxH + boxGap);
 
       // Box Bg
       ctx.fillStyle = statBoxColor;
@@ -988,32 +989,25 @@ jQuery(async () => {
 
       // Label (Left)
       ctx.textAlign = 'left';
-      // User said it looks grayish, let's use a darker gray/black consistent with labels
       ctx.fillStyle = '#000000';
       ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
-      // Value & Unit (Right)
+      // Value & Unit (Right) - 修复对齐
       ctx.textAlign = 'right';
-
-      const fullVal = stat.value;
-      const unit = stat.unit || '';
-
-      // Helper to draw mixed weight text from right to left
       let currentX = boxX + boxW - 24 * scaleFactor;
+      const baselineY = cy + boxH / 2 + 8 * scaleFactor;
 
-      // 1. Draw static unit (e.g., 条, 天, 字)
-      if (unit) {
+      // 1. Draw static unit
+      if (stat.unit) {
         ctx.fillStyle = statLabelColor;
         ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-        ctx.fillText(unit, currentX, cy + boxH / 2 + 8 * scaleFactor);
-        currentX -= ctx.measureText(unit).width + 4 * scaleFactor;
+        ctx.fillText(stat.unit, currentX, baselineY);
+        currentX -= ctx.measureText(stat.unit).width + 6 * scaleFactor;
       }
 
-      // 2. Draw value with intelligent splitting (for dates and memory sizes)
-      // We want to draw Year/Month/Day/Units in 300 and numbers in 700
-      // Regex to split numbers from non-numbers (greedy)
-      const parts = fullVal.split(/(\d+\.?\d*|:)/g).filter(p => p !== '');
+      // 2. Draw value with intelligent splitting
+      const parts = stat.value.split(/(\d+\.?\d*|:)/g).filter(p => p !== '');
 
       for (let j = parts.length - 1; j >= 0; j--) {
         const p = parts[j];
@@ -1023,10 +1017,9 @@ jQuery(async () => {
         ctx.font = isNum
           ? `700 ${24 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`
           : `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-
         ctx.fillStyle = isNum || isTimeSep ? statValueColor : statLabelColor;
 
-        ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 10 : 8) * scaleFactor);
+        ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 9 : 8) * scaleFactor);
         currentX -= ctx.measureText(p).width + (j > 0 ? 2 * scaleFactor : 0);
       }
     });
