@@ -9,6 +9,9 @@ jQuery(async () => {
   // 加载CSS文件 using dynamic path
   $('head').append(`<link rel="stylesheet" type="text/css" href="${extensionWebPath}/styles.css">`);
 
+  // 加载自定义字体
+  $('head').append(`<style>@import url("https://fontsapi.zeoseven.com/19/main/result.css");</style>`);
+
   // 加载HTML using dynamic path
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html`);
   $("#extensions_settings").append(settingsHtml);
@@ -814,8 +817,8 @@ jQuery(async () => {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
 
-    // Figma dimensions: 663x784. Scaling up for high resolution (1.5x)
-    const scaleFactor = 1.5;
+    // Figma dimensions: 663x784. Scaling up for high resolution (2x)
+    const scaleFactor = 2;
     const width = 663 * scaleFactor;
     const height = 784 * scaleFactor;
 
@@ -827,6 +830,16 @@ jQuery(async () => {
 
     canvas.width = width;
     canvas.height = height;
+
+    // 等待字体加载 (LXGW Neo XiHei)
+    try {
+      if (document.fonts) {
+        await document.fonts.load(`300 32px "LXGW Neo XiHei"`);
+        await document.fonts.load(`700 32px "LXGW Neo XiHei"`);
+      }
+    } catch (e) {
+      if (DEBUG) console.warn('Custom font load failed, falling back to system fonts:', e);
+    }
 
     // Helper: Rounded Rect
     function roundRect(x, y, w, h, r, fill = true, stroke = false) {
@@ -841,12 +854,13 @@ jQuery(async () => {
       if (stroke) ctx.stroke();
     }
 
-    // 1. Background
+    // 1. Background (Teal Header only)
     ctx.fillStyle = tealColor;
-    ctx.fillRect(0, 0, width, height * 0.45);
+    const headerH = 246 * scaleFactor;
+    ctx.fillRect(0, 0, width, headerH);
 
     ctx.fillStyle = cardBgColor;
-    roundRect(0, height * 0.4, width, height * 0.6 + 50, 32 * scaleFactor);
+    ctx.fillRect(0, headerH, width, height - headerH);
 
     // 2. Load Avatars
     const avatarUrl = getCharacterAvatar();
@@ -880,40 +894,57 @@ jQuery(async () => {
     }
 
     const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
-    const avatarW = 120 * scaleFactor;
-    const avatarH = 160 * scaleFactor;
-    const avatarY = 80 * scaleFactor;
+    const avatarW = 100 * scaleFactor;
+    const avatarH = 150 * scaleFactor;
+    const centerY = headerH / 2;
+    const avatarY = centerY - avatarH / 2;
+    const avatarGap = 180 * scaleFactor;
 
     if (showUser) {
-      // User Avatar (Left)
-      drawRoundedAvatar(userImg, 90 * scaleFactor, avatarY, avatarW, avatarH, 16 * scaleFactor);
-      // Char Avatar (Right)
-      drawRoundedAvatar(charImg, width - (90 + 120) * scaleFactor, avatarY, avatarW, avatarH, 16 * scaleFactor);
+      const leftX = (width - (avatarW * 2 + avatarGap)) / 2;
+      const rightX = leftX + avatarW + avatarGap;
 
-      // Connection: Dashed Line + Envelope
+      // User Avatar (Left)
+      drawRoundedAvatar(userImg, leftX, avatarY, avatarW, avatarH, 16 * scaleFactor);
+      // Char Avatar (Right)
+      drawRoundedAvatar(charImg, rightX, avatarY, avatarW, avatarH, 16 * scaleFactor);
+
+      // Connection: Dashed Line
       ctx.save();
-      ctx.setLineDash([8 * scaleFactor, 8 * scaleFactor]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      const dashLen = 16 * scaleFactor;
+      ctx.setLineDash([dashLen * 0.4, dashLen * 0.6]); // Match the 40% gap logic
+      ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 2 * scaleFactor;
       ctx.beginPath();
-      ctx.moveTo((90 + 120 + 10) * scaleFactor, avatarY + avatarH / 2);
-      ctx.lineTo(width - (90 + 120 + 10) * scaleFactor, avatarY + avatarH / 2);
+      ctx.moveTo(leftX + avatarW + 10, centerY);
+      ctx.lineTo(rightX - 10, centerY);
       ctx.stroke();
       ctx.restore();
 
       // Envelope Icon (Centered)
-      const iconSize = 40 * scaleFactor;
-      const ix = width / 2 - iconSize / 2;
-      const iy = avatarY + avatarH / 2 - (iconSize * 0.7) / 2;
-      ctx.fillStyle = '#FFFFFF';
-      roundRect(ix, iy, iconSize, iconSize * 0.7, 4 * scaleFactor);
+      const iconW = 32 * scaleFactor;
+      const iconH = 24 * scaleFactor;
+      const ix = width / 2 - iconW / 2;
+      const iy = centerY - iconH / 2;
 
+      // Draw SVG Envelope
+      // Rect BG
+      ctx.fillStyle = '#FFFFFF';
+      roundRect(ix, iy, iconW, iconH, 6 * scaleFactor);
+
+      // Path (V shape)
       ctx.strokeStyle = tealColor;
-      ctx.lineWidth = 2 * scaleFactor;
+      ctx.lineWidth = 2.5 * scaleFactor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(ix, iy);
-      ctx.lineTo(ix + iconSize / 2, iy + iconSize * 0.35);
-      ctx.lineTo(ix + iconSize, iy);
+      // SVG path d="M4 6L20 18L36 6" -> Scale proportionally
+      const p1 = { x: ix + (4 / 40) * iconW, y: iy + (6 / 30) * iconH };
+      const p2 = { x: ix + (20 / 40) * iconW, y: iy + (18 / 30) * iconH };
+      const p3 = { x: ix + (36 / 40) * iconW, y: iy + (6 / 30) * iconH };
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
       ctx.stroke();
     } else {
       drawRoundedAvatar(charImg, (width - avatarW * 1.5) / 2, avatarY - 20, avatarW * 1.5, avatarH * 1.5, 24 * scaleFactor);
@@ -923,8 +954,9 @@ jQuery(async () => {
     const charName = getCurrentCharacterName();
     ctx.textAlign = 'center';
     ctx.fillStyle = tealColor;
-    ctx.font = `bold ${32 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
-    ctx.fillText(charName, width / 2, height * 0.45 + 15 * scaleFactor);
+    // 使用 LXGW Neo XiHei, Weight 300
+    ctx.font = `300 ${32 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+    ctx.fillText(charName, width / 2, headerH + 60 * scaleFactor);
 
     // 4. Stat Items
     const stats = [
@@ -935,7 +967,7 @@ jQuery(async () => {
       { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
     ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    const startY = height * 0.45 + 60 * scaleFactor;
+    const startY = headerH + 110 * scaleFactor;
     const boxW = 540 * scaleFactor;
     const boxH = 68 * scaleFactor;
     const boxGap = 12 * scaleFactor;
@@ -946,24 +978,23 @@ jQuery(async () => {
 
       // Box Bg
       ctx.fillStyle = statBoxColor;
-      roundRect(boxX, cy, boxW, boxH, 12 * scaleFactor);
+      roundRect(boxX, cy, boxW, boxH, 8 * scaleFactor);
 
       // Label (Left)
       ctx.textAlign = 'left';
       ctx.fillStyle = statLabelColor;
-      ctx.font = `${20 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
       // Value & Unit (Right)
       ctx.textAlign = 'right';
 
-      // 拆分数值和单位以应用不同样式
       const fullVal = stat.value;
       const unit = stat.unit || '';
 
       // 测量单位宽度
       ctx.fillStyle = statLabelColor;
-      ctx.font = `${20 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       const unitWidth = unit ? ctx.measureText(unit).width : 0;
 
       // 绘制单位
@@ -973,7 +1004,7 @@ jQuery(async () => {
 
       // 绘制加粗数值
       ctx.fillStyle = statValueColor;
-      ctx.font = `bold ${24 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.font = `700 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(fullVal, boxX + boxW - 24 * scaleFactor - unitWidth - (unit ? 6 : 0), cy + boxH / 2 + 9 * scaleFactor);
     });
 

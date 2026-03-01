@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分享卡片实验室 (Share Card Playground)</title>
+    <style>
+        @import url("https://fontsapi.zeoseven.com/19/main/result.css");
+
+        /* ============================================================
+           这里的 CSS 是你可以实时修改并预览的地方！
+           修改后保存文件并刷新浏览器页面。
+           ============================================================ */
+        :root {
+            --primary-teal: #2D5A50;
+            /* 主色调 (页眉/角色名) */
+            --bg-color: #FFFFFF;
+            /* 卡片背景 */
+            --stat-box-bg: #F5F5F5;
+            /* 统计框背景 */
+            --label-color: #666666;
+            /* 标签和单位颜色 */
+            --value-color: #333333;
+            /* 数值颜色 */
+            --card-width: 663px;
+            --card-height: 784px;
+            --card-border-radius: 32px;
+
+            --avatar-width: 100px;
+            --avatar-height: 150px;
+            --avatar-radius: 16px;
+
+            --stat-box-height: 68px;
+            --stat-box-radius: 8px;
+            --stat-box-gap: 12px;
+
+            --font-main: "LXGW Neo XiHei", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        body {
+            background-color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: var(--font-main);
+        }
+
+        /* 卡片主体 */
+        .card {
+            width: var(--card-width);
+            height: var(--card-height);
+            background-color: var(--bg-color);
+            border-radius: var(--card-border-radius);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 顶部页眉 */
+        .header {
+            height: 246px;
+            background-color: var(--primary-teal);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 头像区域 */
+        .avatars-container {
+            display: flex;
+            align-items: center;
+            gap: 180px;
+            /* 控制两个头像之间的总跨度 */
+            z-index: 2;
+        }
+
+        .avatar {
+            width: var(--avatar-width);
+            height: var(--avatar-height);
+            background-color: #ddd;
+            border-radius: var(--avatar-radius);
+            object-fit: cover;
+        }
+
+        /* 连接线和信封 */
+        .connection {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .dashed-line {
+            width: 180px;
+            height: 2px;
+            /* 使用背景渐变来实现可控间隙的虚线 */
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 1) 40%, transparent 40%);
+            background-size: 16px 100%;
+            /* 这里 16px 控制一个 虚线+横跨 的总长度 */
+            background-repeat: repeat-x;
+        }
+
+        .envelope-icon {
+            position: absolute;
+            width: 40px;
+            height: 30px;
+            z-index: 5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .envelope-icon svg {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+        }
+
+        /* 下半部分内容 */
+        .content {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* 让白色卡片稍微盖在页眉上，形成圆角感 */
+            background: white;
+            z-index: 3;
+        }
+
+        .char-name {
+            color: var(--primary-teal);
+            font-size: 32px;
+            font-weight: 300;
+            margin-bottom: 30px;
+        }
+
+        .stats-list {
+            width: 540px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--stat-box-gap);
+        }
+
+        .stat-box {
+            height: var(--stat-box-height);
+            background-color: var(--stat-box-bg);
+            border-radius: var(--stat-box-radius);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 24px;
+        }
+
+        .stat-label {
+            color: var(--label-color);
+            font-size: 20px;
+            font-weight: 300;
+        }
+
+        .stat-value-group {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .stat-value {
+            color: var(--value-color);
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .stat-unit {
+            color: var(--label-color);
+            font-size: 20px;
+            font-weight: 300;
+        }
+
+        /* 说明提示 */
+        .hint {
+            position: absolute;
+            bottom: -100px;
+            color: #666;
+            text-align: center;
+            width: 800px;
+            line-height: 1.6;
+        }
+
+        code {
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <!-- 头部 -->
+        <div class="header">
+            <div class="connection">
+                <div class="dashed-line"></div>
+                <div class="envelope-icon">
+                    <!-- 使用 SVG 还原设计稿中的信封 -->
+                    <svg viewBox="0 0 40 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="40" height="30" rx="6" fill="white" />
+                        <path d="M4 6L20 18L36 6" stroke="#2D5A50" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                </div>
+            </div>
+            <div class="avatars-container">
+                <!-- 这里可以用你喜欢的头像 URL 替换 -->
+                <img class="avatar" src="https://via.placeholder.com/120x160" alt="User">
+                <img class="avatar" src="https://via.placeholder.com/120x160" alt="Character">
+            </div>
+        </div>
+
+        <!-- 内容块 -->
+        <div class="content">
+            <div class="char-name">角色姓名</div>
+
+            <div class="stats-list">
+                <div class="stat-box">
+                    <div class="stat-label">初遇时间</div>
+                    <div class="stat-value-group">
+                        <span class="stat-value">2025</span><span class="stat-unit">年</span>
+                        <span class="stat-value">3</span><span class="stat-unit">月</span>
+                        <span class="stat-value">15</span><span class="stat-unit">日</span>
+                        <span class="stat-value">18:53</span>
+                    </div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">聊天对话</div>
+                    <div class="stat-value-group">
+                        <span class="stat-value">27</span><span class="stat-unit">条</span>
+                    </div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">相伴天数</div>
+                    <div class="stat-value-group">
+                        <span class="stat-value">68</span><span class="stat-unit">天</span>
+                    </div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">聊天字数</div>
+                    <div class="stat-value-group">
+                        <span class="stat-value">12789</span><span class="stat-unit">字</span>
+                    </div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">回忆大小</div>
+                    <div class="stat-value-group">
+                        <span class="stat-value">189.73</span><span class="stat-unit">B</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hint">
+        💡 <b>如何实时调整？</b><br>
+        1. 用浏览器（Chrome/Edge）直接打开这个 <code>share_card_playground.html</code> 文件。<br>
+        2. 按下 <code>F12</code> 键。点击左上角的小箭头按钮，然后点击卡片上的任何部分。<br>
+        3. 在右侧的 <b>Styles</b> 面板中直接修改数值（色值、高度、间距等），效果会实时看到。<br>
+        4. 调出你最满意的效果后，把样式截图或者告诉我参数，我来写进最终代码！
+    </div>
+
+</body>
+
+</html>
