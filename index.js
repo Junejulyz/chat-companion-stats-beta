@@ -558,9 +558,9 @@ jQuery(async () => {
 
         // 如果成功获取到了任何实际数据
         if (successCount > 0) {
-          // 如果一条用户消息都没有，则视为尚未互动
-          if (totalUserMessagesCalculated === 0) {
-            if (DEBUG) console.log('全量统计完成，但未发现用户消息，判定为尚未互动');
+          // 如果一条用户消息都没有，或者总条数只有1条（系统开场白），判定为尚未互动
+          if (totalUserMessagesCalculated === 0 || totalMessagesCalculated <= 1) {
+            if (DEBUG) console.log('判定为尚未互动: 用户发言为0 或 总消息数 <= 1');
             return {
               messageCount: 0,
               wordCount: 0,
@@ -586,8 +586,8 @@ jQuery(async () => {
         if (DEBUG) console.error('全量统计过程出错:', sumError);
       }
 
-      // 回退逻辑 (如果全量统计失败，且元数据也没有显示任何消息，则返回 0 状态)
-      if (totalMessagesFromChats === 0) {
+      // 回退逻辑 (如果全量统计失败，且元数据也没有显示足够消息)
+      if (totalMessagesFromChats <= 1) {
         return {
           messageCount: 0,
           wordCount: 0,
