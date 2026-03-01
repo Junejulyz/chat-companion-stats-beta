@@ -680,35 +680,36 @@ jQuery(async () => {
       // 始终显示字数估算提示
       $("#ccs-tip").show();
 
-      // 更新统计数据到UI
-      $("#ccs-messages").text(stats.messageCount || 0);
-      $("#ccs-words").text(stats.wordCount || 0);
-
-      // Format total size dynamically (KB or MB)
-      let formattedSize = '--';
-      if (stats.totalSizeBytes !== undefined && stats.totalSizeBytes >= 0) {
-        const bytes = stats.totalSizeBytes;
-        const kb = bytes / 1024;
-        const mb = kb / 1024;
-
-        if (mb >= 1) {
-          formattedSize = `${mb.toFixed(2)} MB`;
-        } else if (kb >= 1) {
-          formattedSize = `${kb.toFixed(2)} KB`;
-        } else {
-          formattedSize = `${bytes} B`; // Display bytes if less than 1 KB
-        }
-      }
-      $("#ccs-total-size").text(formattedSize);
-
-
       if (!stats.firstTime) {
-        if (DEBUG) console.log('No firstTime found in stats');
+        if (DEBUG) console.log('No firstTime found in stats, zeroing UI');
+        $("#ccs-messages").text("0");
+        $("#ccs-words").text("0");
+        $("#ccs-total-size").text("0 B");
         $("#ccs-start").text("尚未互动");
         $("#ccs-days").text("0");
-        // Pass messageCount even if firstTime is null
-        updateShareButtonState(stats.messageCount);
+        updateShareButtonState(0);
       } else {
+        // 更新统计数据到UI
+        $("#ccs-messages").text(stats.messageCount || 0);
+        $("#ccs-words").text(stats.wordCount || 0);
+
+        // Format total size dynamically (KB or MB)
+        let formattedSize = '--';
+        if (stats.totalSizeBytes !== undefined && stats.totalSizeBytes >= 0) {
+          const bytes = stats.totalSizeBytes;
+          const kb = bytes / 1024;
+          const mb = kb / 1024;
+
+          if (mb >= 1) {
+            formattedSize = `${mb.toFixed(2)} MB`;
+          } else if (kb >= 1) {
+            formattedSize = `${kb.toFixed(2)} KB`;
+          } else {
+            formattedSize = `${bytes} B`; // Display bytes if less than 1 KB
+          }
+        }
+        $("#ccs-total-size").text(formattedSize);
+
         const now = new Date();
         // Ensure stats.firstTime is a Date object
         const firstTimeDate = stats.firstTime instanceof Date ? stats.firstTime : new Date(stats.firstTime);
