@@ -814,16 +814,38 @@ jQuery(async () => {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
     const width = 1000;
-    const height = 1300; // Slightly taller for cleaner spacing
+    const height = 1250;
+    const tealColor = '#315E55';
+    const bgColor = '#F2F5F4'; // Stat item background
+    const textColor = '#1A1A1A';
+    const headerHeight = 450;
 
     canvas.width = width;
     canvas.height = height;
 
-    // 1. Instagram 风格背景 (极简白/浅灰)
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    // Helper: Rounded Rect
+    function roundRect(x, y, w, h, r, fill = true, stroke = false) {
+      if (w < 2 * r) r = w / 2;
+      if (h < 2 * r) r = h / 2;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      if (fill) ctx.fill();
+      if (stroke) ctx.stroke();
+    }
 
-    // 2. 加载头像数据
+    // 1. 全局背景 (Teal Header + White Body)
+    ctx.fillStyle = tealColor;
+    ctx.fillRect(0, 0, width, headerHeight + 50); // Little overlap
+
+    ctx.fillStyle = '#ffffff';
+    roundRect(0, headerHeight - 80, width, height - (headerHeight - 80), 40);
+
+    // 2. 加载头像
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
 
@@ -838,122 +860,115 @@ jQuery(async () => {
 
     const [charImg, userImg] = await Promise.all([loadImg(avatarUrl), loadImg(userAvatarUrl)]);
 
-    // 绘制 Instagram 风格渐变环
-    function drawInstagramRing(x, y, radius) {
+    // 绘制圆角头像
+    function drawRoundedAvatar(img, x, y, w, h, r) {
       ctx.save();
-      ctx.lineWidth = 8;
-      const grad = ctx.createLinearGradient(x - radius, y + radius, x + radius, y - radius);
-      grad.addColorStop(0, '#f09433');
-      grad.addColorStop(0.25, '#e6683c');
-      grad.addColorStop(0.5, '#dc2743');
-      grad.addColorStop(0.75, '#cc2366');
-      grad.addColorStop(1, '#bc1888');
-
-      ctx.strokeStyle = grad;
-      ctx.beginPath();
-      ctx.arc(x, y, radius + 8, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    function drawCircularAvatar(img, x, y, size) {
-      const radius = size / 2;
-
-      // 绘制 Ins 渐变环
-      drawInstagramRing(x, y, radius);
-
-      ctx.save();
-      // 头像裁剪
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      roundRect(x, y, w, h, r, false, false);
       ctx.clip();
-
       if (img) {
-        const scale = Math.max(size / img.width, size / img.height);
+        const scale = Math.max(w / img.width, h / img.height);
         const sw = img.width * scale;
         const sh = img.height * scale;
-        ctx.drawImage(img, x - sw / 2, y - sh / 2, sw, sh);
+        ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
       } else {
-        ctx.fillStyle = '#f0f0f0';
-        ctx.fill();
+        ctx.fillStyle = '#e0e0e0';
+        ctx.fillRect(x, y, w, h);
       }
       ctx.restore();
-
-      // 白色分割细环 (Ins 风格特色)
-      ctx.save();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
     }
 
-    // 3. 绘制头像区域 (居中对称)
     const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
-    const avatarSize = 240;
-    const centerY = 320;
+    const imgW = 240;
+    const imgH = 320;
+    const imgY = 100;
 
     if (showUser) {
-      drawCircularAvatar(userImg, width / 2 - 180, centerY, avatarSize);
-      drawCircularAvatar(charImg, width / 2 + 180, centerY, avatarSize);
+      // User Avatar (Left)
+      drawRoundedAvatar(userImg, 140, imgY, imgW, imgH, 24);
+      // Char Avatar (Right)
+      drawRoundedAvatar(charImg, width - 140 - imgW, imgY, imgW, imgH, 24);
 
-      // 这里的“连接”在 Ins 风格中通常不需要图标，只要保持简洁
+      // Connection: Dashed Line + Envelope
+      ctx.save();
+      ctx.setLineDash([10, 10]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(140 + imgW + 10, imgY + imgH / 2);
+      ctx.lineTo(width - 140 - imgW - 10, imgY + imgH / 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Envelope Icon
+      const iconSize = 60;
+      const ix = width / 2 - iconSize / 2;
+      const iy = imgY + imgH / 2 - iconSize / 2;
+      ctx.fillStyle = '#ffffff';
+      // Simple Envelope Shape
+      roundRect(ix, iy, iconSize, iconSize * 0.7, 4);
+      ctx.strokeStyle = tealColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(ix, iy);
+      ctx.lineTo(ix + iconSize / 2, iy + iconSize * 0.35);
+      ctx.lineTo(ix + iconSize, iy);
+      ctx.stroke();
     } else {
-      drawCircularAvatar(charImg, width / 2, centerY, avatarSize + 40);
+      drawRoundedAvatar(charImg, (width - imgW * 1.5) / 2, imgY, imgW * 1.5, imgH * 1.5, 32);
     }
 
-    // 4. 统计数据列表 (Ins 风格个人主页感)
+    // 3. 角色名
+    const charName = getCurrentCharacterName();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = tealColor;
+    ctx.font = '600 48px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText(charName, width / 2, headerHeight + 50);
+
+    // 4. 统计卡片列表
     const stats = [
       { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text() },
-      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
-      { id: 'ccs-share-words', label: '累计字数', value: $("#ccs-words").text(), unit: '字' },
-      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
+      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: ' 条' },
+      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: ' 天' },
+      { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: ' 字' },
       { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
     ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    const listYStart = 550;
-    const itemHeight = 120;
-    const listWidth = 800;
-    const listX = (width - listWidth) / 2;
+    const startY = headerHeight + 130;
+    const cardGap = 30;
+    const cardH = 100;
+    const cardW = 800;
+    const cardX = (width - cardW) / 2;
 
     stats.forEach((stat, i) => {
-      const y = listYStart + i * itemHeight;
+      const cy = startY + i * (cardH + cardGap);
 
-      // 分割线
-      if (i > 0) {
-        ctx.strokeStyle = '#efefef';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(listX, y - 20);
-        ctx.lineTo(listX + listWidth, y - 20);
-        ctx.stroke();
-      }
+      // Card Background
+      ctx.fillStyle = bgColor;
+      roundRect(cardX, cy, cardW, cardH, 16);
 
-      // 标签 (Ins Secondary Text)
+      // Label
       ctx.textAlign = 'left';
-      ctx.font = '32px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = '#8e8e8e'; // Ins grey info text
-      ctx.fillText(stat.label, listX, y + 40);
+      ctx.fillStyle = '#4A4A4A';
+      ctx.font = '400 32px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillText(stat.label, cardX + 40, cy + cardH / 2 + 10);
 
-      // 数值 (Ins Main Text)
+      // Value
       ctx.textAlign = 'right';
-      ctx.font = '600 42px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = '#262626'; // Ins dark text
-      const valStr = stat.value + (stat.unit || '');
-      ctx.fillText(valStr, listX + listWidth, y + 45);
+      ctx.fillStyle = textColor;
+      const valText = stat.value;
+      const unitText = stat.unit || '';
+
+      // Measure unit to align properly
+      ctx.font = '400 28px "PingFang SC", "Microsoft YaHei", sans-serif';
+      const unitW = ctx.measureText(unitText).width;
+
+      ctx.fillStyle = '#666';
+      ctx.fillText(unitText, cardX + cardW - 40, cy + cardH / 2 + 10);
+
+      ctx.fillStyle = textColor;
+      ctx.font = '700 42px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillText(valText, cardX + cardW - 40 - unitW, cy + cardH / 2 + 12);
     });
-
-    // 5. 顶部标题 (Ins 风格居中标题)
-    ctx.textAlign = 'center';
-    ctx.font = '600 48px "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.fillStyle = '#262626';
-    ctx.fillText('我们的羁绊回忆', width / 2, 120);
-
-    // 6. 底部装饰 (仿 Ins 风格)
-    ctx.font = '400 24px Arial';
-    ctx.fillStyle = '#dbdbdb';
-    ctx.fillText('━━━━  SHARED MOMENTS  ━━━━', width / 2, height - 80);
 
     return canvas.toDataURL('image/png');
   }
