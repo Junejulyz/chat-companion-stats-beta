@@ -13,8 +13,6 @@ jQuery(async () => {
   $('head').append(`<style>@import url("https://fontsapi.zeoseven.com/19/main/result.css");</style>`);
 
   let shareStyle = 'classic';
-  let stylesData = []; // Store generated images for carousel
-  let currentIndex = 0;
 
   // 加载HTML using dynamic path
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html`);
@@ -828,7 +826,7 @@ jQuery(async () => {
     const isDark = shareStyle === 'dark';
     const tealColor = isDark ? '#131313' : '#2D5A50';
     const cardBgColor = isDark ? '#282828' : '#FAFBF7';
-    const statBoxColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(52, 107, 100, 0.08)';
+    const statBoxColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(52, 107, 100, 0.05)';
     const statLabelColor = isDark ? '#AAAAAA' : '#666666';
     const statValueColor = isDark ? '#FFFFFF' : '#333333';
     const charNameColor = isDark ? '#FFFFFF' : tealColor;
@@ -1071,26 +1069,15 @@ jQuery(async () => {
   });
 
   // 添加分享按钮事件处理
-  async function handleShare() {
-    const $button = $('#ccs-share');
+  $("#ccs-share").on("click", async function () {
+    const $button = $(this);
+    if ($button.prop('disabled')) return; // 如果按钮被禁用，直接返回
+
     $button.prop('disabled', true).val('生成中...');
 
     try {
-      stylesData = [];
-      const styles = ['classic', 'dark'];
-
-      // 并行生成所有风格
-      const generationPromises = styles.map(async (style) => {
-        shareStyle = style;
-        const data = await generateShareImage();
-        return { style, data };
-      });
-
-      stylesData = await Promise.all(generationPromises);
-
-      // 初始化轮播
-      renderCarousel();
-      $("#ccs-preview-modal").fadeIn(300);
+      const imageData = await generateShareImage();
+      showPreview(imageData);
       $button.val('已生成');
     } catch (error) {
       console.error('生成分享图片失败:', error);
@@ -1099,85 +1086,7 @@ jQuery(async () => {
         $button.prop('disabled', false).val('分享');
       }, 1000);
     }
-  }
-
-  function renderCarousel() {
-    const $track = $('#ccs-carousel-track');
-    const $dots = $('#ccs-carousel-dots');
-    $track.empty();
-    $dots.empty();
-    currentIndex = 0;
-
-    stylesData.forEach((item, i) => {
-      const $slide = $(`<div class="ccs-carousel-slide"><img src="${item.data}"></div>`);
-      $track.append($slide);
-
-      const $dot = $(`<div class="ccs-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></div>`);
-      $dots.append($dot);
-    });
-
-    updateCarousel();
-  }
-
-  function updateCarousel() {
-    const $track = $('#ccs-carousel-track');
-    $track.css('transform', `translateX(-${currentIndex * 100}%)`);
-    $('.ccs-dot').removeClass('active').eq(currentIndex).addClass('active');
-    shareStyle = stylesData[currentIndex].style;
-  }
-
-  // Swipe logic for carousel
-  let startX = 0;
-  let isDragging = false;
-
-  $(document).on('touchstart', '#ccs-carousel-container', (e) => {
-    startX = e.originalEvent.touches[0].pageX;
-    isDragging = true;
   });
-
-  $(document).on('touchend', '#ccs-carousel-container', (e) => {
-    if (!isDragging) return;
-    const endX = e.originalEvent.changedTouches[0].pageX;
-    const diff = startX - endX;
-
-    if (Math.abs(diff) > 50) {
-      if (diff > 0 && currentIndex < stylesData.length - 1) {
-        currentIndex++;
-      } else if (diff < 0 && currentIndex > 0) {
-        currentIndex--;
-      }
-      updateCarousel();
-    }
-    isDragging = false;
-  });
-
-  // PC support (Mouse drag)
-  $(document).on('mousedown', '#ccs-carousel-container', (e) => {
-    startX = e.pageX;
-    isDragging = true;
-  });
-
-  $(document).on('mouseup', '#ccs-carousel-container', (e) => {
-    if (!isDragging) return;
-    const endX = e.pageX;
-    const diff = startX - endX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0 && currentIndex < stylesData.length - 1) {
-        currentIndex++;
-      } else if (diff < 0 && currentIndex > 0) {
-        currentIndex--;
-      }
-      updateCarousel();
-    }
-    isDragging = false;
-  });
-
-  $(document).on('click', '.ccs-dot', function () {
-    currentIndex = $(this).data('index');
-    updateCarousel();
-  });
-
-  $("#ccs-share").on("click", handleShare);
 
   // 添加取消按钮事件处理
   $("#ccs-cancel").on("click", function () {
@@ -1189,7 +1098,7 @@ jQuery(async () => {
     const characterName = getCurrentCharacterName();
     const link = document.createElement('a');
     link.download = `羁绊卡片_${characterName}.png`;
-    link.href = stylesData[currentIndex].data;
+    link.href = $("#ccs-preview-container img").attr('src');
     link.click();
   });
 
