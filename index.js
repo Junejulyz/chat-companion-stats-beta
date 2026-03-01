@@ -813,20 +813,23 @@ jQuery(async () => {
   async function generateShareImage() {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
-    const width = 1000;
-    const height = 1250;
-    const tealColor = '#315E55';
-    const bgColor = '#F2F5F4'; // Stat item background
-    const textColor = '#1A1A1A';
-    const headerHeight = 450;
+
+    // Figma dimensions: 663x784. Scaling up for high resolution (1.5x)
+    const scaleFactor = 1.5;
+    const width = 663 * scaleFactor;
+    const height = 784 * scaleFactor;
+
+    const tealColor = '#2D5A50';
+    const cardBgColor = '#FFFFFF';
+    const statBoxColor = '#F5F5F5';
+    const statLabelColor = '#666666';
+    const statValueColor = '#333333';
 
     canvas.width = width;
     canvas.height = height;
 
     // Helper: Rounded Rect
     function roundRect(x, y, w, h, r, fill = true, stroke = false) {
-      if (w < 2 * r) r = w / 2;
-      if (h < 2 * r) r = h / 2;
       ctx.beginPath();
       ctx.moveTo(x + r, y);
       ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -838,14 +841,14 @@ jQuery(async () => {
       if (stroke) ctx.stroke();
     }
 
-    // 1. 全局背景 (Teal Header + White Body)
+    // 1. Background
     ctx.fillStyle = tealColor;
-    ctx.fillRect(0, 0, width, headerHeight + 50); // Little overlap
+    ctx.fillRect(0, 0, width, height * 0.45);
 
-    ctx.fillStyle = '#ffffff';
-    roundRect(0, headerHeight - 80, width, height - (headerHeight - 80), 40);
+    ctx.fillStyle = cardBgColor;
+    roundRect(0, height * 0.4, width, height * 0.6 + 50, 32 * scaleFactor);
 
-    // 2. 加载头像
+    // 2. Load Avatars
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
 
@@ -860,7 +863,6 @@ jQuery(async () => {
 
     const [charImg, userImg] = await Promise.all([loadImg(avatarUrl), loadImg(userAvatarUrl)]);
 
-    // 绘制圆角头像
     function drawRoundedAvatar(img, x, y, w, h, r) {
       ctx.save();
       roundRect(x, y, w, h, r, false, false);
@@ -878,96 +880,101 @@ jQuery(async () => {
     }
 
     const showUser = $("#ccs-share-user-avatar").is(":checked") && userImg;
-    const imgW = 240;
-    const imgH = 320;
-    const imgY = 100;
+    const avatarW = 120 * scaleFactor;
+    const avatarH = 160 * scaleFactor;
+    const avatarY = 80 * scaleFactor;
 
     if (showUser) {
       // User Avatar (Left)
-      drawRoundedAvatar(userImg, 140, imgY, imgW, imgH, 24);
+      drawRoundedAvatar(userImg, 90 * scaleFactor, avatarY, avatarW, avatarH, 16 * scaleFactor);
       // Char Avatar (Right)
-      drawRoundedAvatar(charImg, width - 140 - imgW, imgY, imgW, imgH, 24);
+      drawRoundedAvatar(charImg, width - (90 + 120) * scaleFactor, avatarY, avatarW, avatarH, 16 * scaleFactor);
 
       // Connection: Dashed Line + Envelope
       ctx.save();
-      ctx.setLineDash([10, 10]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-      ctx.lineWidth = 3;
+      ctx.setLineDash([8 * scaleFactor, 8 * scaleFactor]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2 * scaleFactor;
       ctx.beginPath();
-      ctx.moveTo(140 + imgW + 10, imgY + imgH / 2);
-      ctx.lineTo(width - 140 - imgW - 10, imgY + imgH / 2);
+      ctx.moveTo((90 + 120 + 10) * scaleFactor, avatarY + avatarH / 2);
+      ctx.lineTo(width - (90 + 120 + 10) * scaleFactor, avatarY + avatarH / 2);
       ctx.stroke();
       ctx.restore();
 
-      // Envelope Icon
-      const iconSize = 60;
+      // Envelope Icon (Centered)
+      const iconSize = 40 * scaleFactor;
       const ix = width / 2 - iconSize / 2;
-      const iy = imgY + imgH / 2 - iconSize / 2;
-      ctx.fillStyle = '#ffffff';
-      // Simple Envelope Shape
-      roundRect(ix, iy, iconSize, iconSize * 0.7, 4);
+      const iy = avatarY + avatarH / 2 - (iconSize * 0.7) / 2;
+      ctx.fillStyle = '#FFFFFF';
+      roundRect(ix, iy, iconSize, iconSize * 0.7, 4 * scaleFactor);
+
       ctx.strokeStyle = tealColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2 * scaleFactor;
       ctx.beginPath();
       ctx.moveTo(ix, iy);
       ctx.lineTo(ix + iconSize / 2, iy + iconSize * 0.35);
       ctx.lineTo(ix + iconSize, iy);
       ctx.stroke();
     } else {
-      drawRoundedAvatar(charImg, (width - imgW * 1.5) / 2, imgY, imgW * 1.5, imgH * 1.5, 32);
+      drawRoundedAvatar(charImg, (width - avatarW * 1.5) / 2, avatarY - 20, avatarW * 1.5, avatarH * 1.5, 24 * scaleFactor);
     }
 
-    // 3. 角色名
+    // 3. Character Name
     const charName = getCurrentCharacterName();
     ctx.textAlign = 'center';
     ctx.fillStyle = tealColor;
-    ctx.font = '600 48px "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.fillText(charName, width / 2, headerHeight + 50);
+    ctx.font = `bold ${32 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    ctx.fillText(charName, width / 2, height * 0.45 + 15 * scaleFactor);
 
-    // 4. 统计卡片列表
+    // 4. Stat Items
     const stats = [
       { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text() },
-      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: ' 条' },
-      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: ' 天' },
-      { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: ' 字' },
+      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
+      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
+      { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: '字' },
       { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
     ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    const startY = headerHeight + 130;
-    const cardGap = 30;
-    const cardH = 100;
-    const cardW = 800;
-    const cardX = (width - cardW) / 2;
+    const startY = height * 0.45 + 60 * scaleFactor;
+    const boxW = 540 * scaleFactor;
+    const boxH = 68 * scaleFactor;
+    const boxGap = 12 * scaleFactor;
+    const boxX = (width - boxW) / 2;
 
     stats.forEach((stat, i) => {
-      const cy = startY + i * (cardH + cardGap);
+      const cy = startY + i * (boxH + boxGap);
 
-      // Card Background
-      ctx.fillStyle = bgColor;
-      roundRect(cardX, cy, cardW, cardH, 16);
+      // Box Bg
+      ctx.fillStyle = statBoxColor;
+      roundRect(boxX, cy, boxW, boxH, 12 * scaleFactor);
 
-      // Label
+      // Label (Left)
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#4A4A4A';
-      ctx.font = '400 32px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillText(stat.label, cardX + 40, cy + cardH / 2 + 10);
+      ctx.fillStyle = statLabelColor;
+      ctx.font = `${20 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
-      // Value
+      // Value & Unit (Right)
       ctx.textAlign = 'right';
-      ctx.fillStyle = textColor;
-      const valText = stat.value;
-      const unitText = stat.unit || '';
 
-      // Measure unit to align properly
-      ctx.font = '400 28px "PingFang SC", "Microsoft YaHei", sans-serif';
-      const unitW = ctx.measureText(unitText).width;
+      // 拆分数值和单位以应用不同样式
+      const fullVal = stat.value;
+      const unit = stat.unit || '';
 
-      ctx.fillStyle = '#666';
-      ctx.fillText(unitText, cardX + cardW - 40, cy + cardH / 2 + 10);
+      // 测量单位宽度
+      ctx.fillStyle = statLabelColor;
+      ctx.font = `${20 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      const unitWidth = unit ? ctx.measureText(unit).width : 0;
 
-      ctx.fillStyle = textColor;
-      ctx.font = '700 42px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillText(valText, cardX + cardW - 40 - unitW, cy + cardH / 2 + 12);
+      // 绘制单位
+      if (unit) {
+        ctx.fillText(unit, boxX + boxW - 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
+      }
+
+      // 绘制加粗数值
+      ctx.fillStyle = statValueColor;
+      ctx.font = `bold ${24 * scaleFactor}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.fillText(fullVal, boxX + boxW - 24 * scaleFactor - unitWidth - (unit ? 6 : 0), cy + boxH / 2 + 9 * scaleFactor);
     });
 
     return canvas.toDataURL('image/png');
