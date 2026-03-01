@@ -3,7 +3,7 @@ import { getPastCharacterChats } from '../../../../script.js';
 
 const extensionName = "chat-companion-stats";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
-const DEBUG = false;
+const DEBUG = true;
 
 jQuery(async () => {
   // 加载CSS文件 using dynamic path
@@ -538,6 +538,7 @@ jQuery(async () => {
         let totalWordsCalculated = 0;
         let totalMessagesCalculated = 0;
         let totalUserMessagesCalculated = 0;
+        let maxMessagesInScan = 0;
         let absoluteEarliestUserTime = null;
         let successCount = 0;
 
@@ -553,6 +554,11 @@ jQuery(async () => {
               totalUserMessagesCalculated += (res.userCount || 0);
               successCount++;
 
+              // 记录分析到的最大单次对话消息数
+              if (res.count > maxMessagesInScan) {
+                maxMessagesInScan = res.count;
+              }
+
               // 寻找绝对最早的 *用户* 初遇时间
               if (res.earliestTime && (!absoluteEarliestUserTime || res.earliestTime < absoluteEarliestUserTime)) {
                 absoluteEarliestUserTime = res.earliestTime;
@@ -561,11 +567,11 @@ jQuery(async () => {
           });
         }
 
-        // 如果成功获取到了任何实际数据
+        // 如果成功获取到了任何实际数据，以实测数据为准
         if (successCount > 0) {
-          // 判定逻辑：必须至少有一条用户消息，且不能所有聊天都只有1条开场白
-          if (totalUserMessagesCalculated === 0 || maxMessagesInSingleChat <= 1) {
-            if (DEBUG) console.log('判定为尚未互动: 用户发言为0 或 每个对话都只有1条消息');
+          // 判定逻辑：必须至少有一条用户消息，且不能所有聊天都只有1条开场白 (以实测 count 为准)
+          if (totalUserMessagesCalculated === 0 || maxMessagesInScan <= 1) {
+            if (DEBUG) console.log(`判定为尚未互动: 用户发言=${totalUserMessagesCalculated}, 最大单场消息=${maxMessagesInScan}`);
             return {
               messageCount: 0,
               wordCount: 0,
