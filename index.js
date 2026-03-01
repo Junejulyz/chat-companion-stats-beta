@@ -468,6 +468,7 @@ jQuery(async () => {
       let earliestTime = null;
       let totalDurationSeconds = 0;
       let totalSizeBytesRaw = 0;
+      let maxMessagesInSingleChat = 0;
       const chatFilesCount = Array.isArray(chats) ? chats.length : 0;
 
       if (chatFilesCount === 0) {
@@ -484,7 +485,11 @@ jQuery(async () => {
 
       chats.forEach(chat => {
         // 使用元数据作为基础值
-        totalMessagesFromChats += parseInt(chat.chat_items) || 0;
+        const chatItems = parseInt(chat.chat_items) || 0;
+        totalMessagesFromChats += chatItems;
+        if (chatItems > maxMessagesInSingleChat) {
+          maxMessagesInSingleChat = chatItems;
+        }
 
         // 解析文件大小
         const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
@@ -558,9 +563,9 @@ jQuery(async () => {
 
         // 如果成功获取到了任何实际数据
         if (successCount > 0) {
-          // 如果一条用户消息都没有，或者总条数只有1条（系统开场白），判定为尚未互动
-          if (totalUserMessagesCalculated === 0 || totalMessagesCalculated <= 1) {
-            if (DEBUG) console.log('判定为尚未互动: 用户发言为0 或 总消息数 <= 1');
+          // 判定逻辑：必须至少有一条用户消息，且不能所有聊天都只有1条开场白
+          if (totalUserMessagesCalculated === 0 || maxMessagesInSingleChat <= 1) {
+            if (DEBUG) console.log('判定为尚未互动: 用户发言为0 或 每个对话都只有1条消息');
             return {
               messageCount: 0,
               wordCount: 0,
@@ -586,8 +591,8 @@ jQuery(async () => {
         if (DEBUG) console.error('全量统计过程出错:', sumError);
       }
 
-      // 回退逻辑 (如果全量统计失败，且元数据也没有显示足够消息)
-      if (totalMessagesFromChats <= 1) {
+      // 回退逻辑 (如果全量统计失败，且元数据也没有显示任何有实质内容的会话)
+      if (maxMessagesInSingleChat <= 1) {
         return {
           messageCount: 0,
           wordCount: 0,
