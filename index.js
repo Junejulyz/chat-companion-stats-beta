@@ -12,6 +12,8 @@ jQuery(async () => {
   // 加载自定义字体
   $('head').append(`<style>@import url("https://fontsapi.zeoseven.com/19/main/result.css");</style>`);
 
+  let shareStyle = 'classic';
+
   // 加载HTML using dynamic path
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html`);
   $("#extensions_settings").append(settingsHtml);
@@ -819,11 +821,16 @@ jQuery(async () => {
 
     const scaleFactor = 2;
     const width = 663 * scaleFactor;
-    const tealColor = '#2D5A50';
-    const cardBgColor = '#FFFFFF';
-    const statBoxColor = '#F5F5F5';
-    const statLabelColor = '#666666';
-    const statValueColor = '#333333';
+
+    // Theme colors
+    const isDark = shareStyle === 'dark';
+    const tealColor = isDark ? '#131313' : '#2D5A50';
+    const cardBgColor = isDark ? '#282828' : '#FFFFFF';
+    const statBoxColor = isDark ? 'rgba(255, 255, 255, 0.05)' : '#F5F5F5';
+    const statLabelColor = isDark ? '#AAAAAA' : '#666666';
+    const statValueColor = isDark ? '#FFFFFF' : '#333333';
+    const charNameColor = isDark ? '#FFFFFF' : tealColor;
+    const dashColor = '#FFFFFF';
 
     // 1. 获取选中的统计项
     const stats = [
@@ -927,7 +934,7 @@ jQuery(async () => {
       ctx.save();
       const dashLen = 16 * scaleFactor;
       ctx.setLineDash([dashLen * 0.4, dashLen * 0.6]);
-      ctx.strokeStyle = '#FFFFFF';
+      ctx.strokeStyle = dashColor;
       ctx.lineWidth = 2 * scaleFactor;
 
       const iconW = 32 * scaleFactor;
@@ -967,7 +974,7 @@ jQuery(async () => {
     const charName = getCurrentCharacterName();
     const nameY = headerH + 60 * scaleFactor;
     ctx.textAlign = 'center';
-    ctx.fillStyle = tealColor;
+    ctx.fillStyle = charNameColor;
     ctx.font = `300 ${34 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
     ctx.fillText(charName, width / 2, nameY);
 
@@ -983,7 +990,7 @@ jQuery(async () => {
 
       // Label
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
       ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
@@ -1107,6 +1114,17 @@ jQuery(async () => {
 
   // 初始化时的基本更新
   updateStats(); // Keep initial update on load
+
+  // 风格切换处理
+  $(document).on('click', '.ccs-style-opt', function () {
+    $('.ccs-style-opt').removeClass('active');
+    $(this).addClass('active');
+    shareStyle = $(this).data('style');
+    if (DEBUG) console.log('Selected style:', shareStyle);
+  });
+
+  // 绑定点击事件 - 使用事件委托以防动态加载问题
+  $(document).on('click', '#ccs-refresh', updateStats);
 
   // Add change listener to checkboxes to update share button state
   $(document).on('change', '.ccs-share-option input[type="checkbox"]', function () {
