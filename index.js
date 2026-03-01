@@ -915,17 +915,23 @@ jQuery(async () => {
       ctx.setLineDash([dashLen * 0.4, dashLen * 0.6]); // Match the 40% gap logic
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 2 * scaleFactor;
-      ctx.beginPath();
-      ctx.moveTo(leftX + avatarW + 10, centerY);
-      ctx.lineTo(rightX - 10, centerY);
-      ctx.stroke();
-      ctx.restore();
 
-      // Envelope Icon (Centered)
+      // Envelope Icon Dimensions
       const iconW = 32 * scaleFactor;
       const iconH = 24 * scaleFactor;
       const ix = width / 2 - iconW / 2;
       const iy = centerY - iconH / 2;
+      const gap = 10 * scaleFactor; // Gap between dash and envelope
+
+      ctx.beginPath();
+      // Left dash: from avatar to near envelope
+      ctx.moveTo(leftX + avatarW + 10 * scaleFactor, centerY);
+      ctx.lineTo(ix - gap, centerY);
+      // Right dash: from near envelope to character avatar
+      ctx.moveTo(ix + iconW + gap, centerY);
+      ctx.lineTo(rightX - 10 * scaleFactor, centerY);
+      ctx.stroke();
+      ctx.restore();
 
       // Draw SVG Envelope
       // Rect BG
@@ -955,12 +961,12 @@ jQuery(async () => {
     ctx.textAlign = 'center';
     ctx.fillStyle = tealColor;
     // 使用 LXGW Neo XiHei, Weight 300
-    ctx.font = `300 ${32 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+    ctx.font = `300 ${34 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
     ctx.fillText(charName, width / 2, headerH + 60 * scaleFactor);
 
     // 4. Stat Items
     const stats = [
-      { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text() },
+      { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '') },
       { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
       { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
       { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: '字' },
@@ -983,8 +989,8 @@ jQuery(async () => {
       // Label (Left)
       ctx.textAlign = 'left';
       // User said it looks grayish, let's use a darker gray/black consistent with labels
-      ctx.fillStyle = '#444444';
-      ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+      ctx.fillStyle = '#000000';
+      ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
       // Value & Unit (Right)
@@ -999,7 +1005,7 @@ jQuery(async () => {
       // 1. Draw static unit (e.g., 条, 天, 字)
       if (unit) {
         ctx.fillStyle = statLabelColor;
-        ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+        ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
         ctx.fillText(unit, currentX, cy + boxH / 2 + 8 * scaleFactor);
         currentX -= ctx.measureText(unit).width + 4 * scaleFactor;
       }
@@ -1007,18 +1013,20 @@ jQuery(async () => {
       // 2. Draw value with intelligent splitting (for dates and memory sizes)
       // We want to draw Year/Month/Day/Units in 300 and numbers in 700
       // Regex to split numbers from non-numbers (greedy)
-      const parts = fullVal.split(/(\d+\.?\d*)/g).filter(p => p !== '');
+      const parts = fullVal.split(/(\d+\.?\d*|:)/g).filter(p => p !== '');
 
       for (let j = parts.length - 1; j >= 0; j--) {
         const p = parts[j];
         const isNum = /^\d+\.?\d*$/.test(p);
+        const isTimeSep = p === ':';
 
         ctx.font = isNum
-          ? `700 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`
-          : `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-        ctx.fillStyle = isNum ? statValueColor : statLabelColor;
+          ? `700 ${24 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`
+          : `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
 
-        ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 9 : 8) * scaleFactor);
+        ctx.fillStyle = isNum || isTimeSep ? statValueColor : statLabelColor;
+
+        ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 10 : 8) * scaleFactor);
         currentX -= ctx.measureText(p).width + (j > 0 ? 2 * scaleFactor : 0);
       }
     });
