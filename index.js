@@ -982,7 +982,8 @@ jQuery(async () => {
 
       // Label (Left)
       ctx.textAlign = 'left';
-      ctx.fillStyle = statLabelColor;
+      // User said it looks grayish, let's use a darker gray/black consistent with labels
+      ctx.fillStyle = '#444444';
       ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
@@ -992,20 +993,34 @@ jQuery(async () => {
       const fullVal = stat.value;
       const unit = stat.unit || '';
 
-      // 测量单位宽度
-      ctx.fillStyle = statLabelColor;
-      ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-      const unitWidth = unit ? ctx.measureText(unit).width : 0;
+      // Helper to draw mixed weight text from right to left
+      let currentX = boxX + boxW - 24 * scaleFactor;
 
-      // 绘制单位
+      // 1. Draw static unit (e.g., 条, 天, 字)
       if (unit) {
-        ctx.fillText(unit, boxX + boxW - 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
+        ctx.fillStyle = statLabelColor;
+        ctx.font = `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+        ctx.fillText(unit, currentX, cy + boxH / 2 + 8 * scaleFactor);
+        currentX -= ctx.measureText(unit).width + 4 * scaleFactor;
       }
 
-      // 绘制加粗数值
-      ctx.fillStyle = statValueColor;
-      ctx.font = `700 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-      ctx.fillText(fullVal, boxX + boxW - 24 * scaleFactor - unitWidth - (unit ? 6 : 0), cy + boxH / 2 + 9 * scaleFactor);
+      // 2. Draw value with intelligent splitting (for dates and memory sizes)
+      // We want to draw Year/Month/Day/Units in 300 and numbers in 700
+      // Regex to split numbers from non-numbers (greedy)
+      const parts = fullVal.split(/(\d+\.?\d*)/g).filter(p => p !== '');
+
+      for (let j = parts.length - 1; j >= 0; j--) {
+        const p = parts[j];
+        const isNum = /^\d+\.?\d*$/.test(p);
+
+        ctx.font = isNum
+          ? `700 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`
+          : `300 ${20 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
+        ctx.fillStyle = isNum ? statValueColor : statLabelColor;
+
+        ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 9 : 8) * scaleFactor);
+        currentX -= ctx.measureText(p).width + (j > 0 ? 2 * scaleFactor : 0);
+      }
     });
 
     return canvas.toDataURL('image/png');
