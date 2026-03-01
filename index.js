@@ -817,28 +817,44 @@ jQuery(async () => {
     const canvas = document.getElementById('ccs-canvas');
     const ctx = canvas.getContext('2d');
 
-    // Figma dimensions: 663x784. Scaling up for high resolution (2x)
     const scaleFactor = 2;
     const width = 663 * scaleFactor;
-    const height = 784 * scaleFactor;
-
     const tealColor = '#2D5A50';
     const cardBgColor = '#FFFFFF';
     const statBoxColor = '#F5F5F5';
     const statLabelColor = '#666666';
     const statValueColor = '#333333';
 
-    canvas.width = width;
-    canvas.height = height;
+    // 1. 获取选中的统计项
+    const stats = [
+      { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '') },
+      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
+      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
+      { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: '字' },
+      { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
+    ].filter(s => $(`#${s.id}`).is(":checked"));
 
-    // 等待字体加载 (LXGW Neo XiHei)
+    // 2. 计算动态高度
+    const headerH = 246 * scaleFactor;
+    const boxH = 68 * scaleFactor;
+    const boxGap = 12 * scaleFactor;
+    const nameAreaH = 100 * scaleFactor; // 角色名区域高度
+    const paddingBottom = 40 * scaleFactor; // 底部留白
+
+    const statsAreaH = stats.length * boxH + (stats.length > 0 ? (stats.length - 1) * boxGap : 0);
+    const dynamicHeight = headerH + nameAreaH + statsAreaH + paddingBottom;
+
+    canvas.width = width;
+    canvas.height = dynamicHeight;
+
+    // 等待字体加载
     try {
       if (document.fonts) {
         await document.fonts.load(`300 32px "LXGW Neo XiHei"`);
         await document.fonts.load(`700 32px "LXGW Neo XiHei"`);
       }
     } catch (e) {
-      if (DEBUG) console.warn('Custom font load failed, falling back to system fonts:', e);
+      if (DEBUG) console.warn('Font load failed:', e);
     }
 
     // Helper: Rounded Rect
@@ -854,15 +870,13 @@ jQuery(async () => {
       if (stroke) ctx.stroke();
     }
 
-    // 1. Background (Teal Header only)
+    // 3. 绘制背景
     ctx.fillStyle = tealColor;
-    const headerH = 246 * scaleFactor;
     ctx.fillRect(0, 0, width, headerH);
-
     ctx.fillStyle = cardBgColor;
-    ctx.fillRect(0, headerH, width, height - headerH);
+    ctx.fillRect(0, headerH, width, dynamicHeight - headerH);
 
-    // 2. Load Avatars
+    // 4. 绘制头像
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
 
@@ -949,56 +963,35 @@ jQuery(async () => {
       drawRoundedAvatar(charImg, (width - avatarW) / 2, avatarY, avatarW, avatarH, 16 * scaleFactor);
     }
 
-    // 4. 内容区域计算 (为了垂直居中)
-    const stats = [
-      { id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '') },
-      { id: 'ccs-share-messages', label: '聊天对话', value: $("#ccs-messages").text(), unit: '条' },
-      { id: 'ccs-share-days', label: '相伴天数', value: $("#ccs-days").text(), unit: '天' },
-      { id: 'ccs-share-words', label: '聊天字数', value: $("#ccs-words").text(), unit: '字' },
-      { id: 'ccs-share-size', label: '回忆大小', value: $("#ccs-total-size").text() }
-    ].filter(s => $(`#${s.id}`).is(":checked"));
-
-    const boxW = 540 * scaleFactor;
-    const boxH = 68 * scaleFactor;
-    const boxGap = 12 * scaleFactor;
-    const boxX = (width - boxW) / 2;
-
-    const nameH = 60 * scaleFactor; // 角色名占高度
-    const totalContentH = nameH + stats.length * boxH + (stats.length > 0 ? (stats.length - 1) * boxGap : 0);
-    const whiteAreaH = height - headerH;
-
-    // 动态起始位置 (居中计算)
-    const contentStartY = headerH + (whiteAreaH - totalContentH) / 2;
-
-    // 绘制角色名
+    // 5. 绘制角色名
     const charName = getCurrentCharacterName();
+    const nameY = headerH + 60 * scaleFactor;
     ctx.textAlign = 'center';
     ctx.fillStyle = tealColor;
     ctx.font = `300 ${34 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
-    ctx.fillText(charName, width / 2, contentStartY + 35 * scaleFactor);
+    ctx.fillText(charName, width / 2, nameY);
 
-    // 绘制统计项
-    const statsStartY = contentStartY + nameH;
+    // 6. 绘制统计项
+    const statsStartY = nameY + 40 * scaleFactor;
+    const boxX = (width - (540 * scaleFactor)) / 2;
+    const boxW = 540 * scaleFactor;
 
     stats.forEach((stat, i) => {
       const cy = statsStartY + i * (boxH + boxGap);
-
-      // Box Bg
       ctx.fillStyle = statBoxColor;
       roundRect(boxX, cy, boxW, boxH, 8 * scaleFactor);
 
-      // Label (Left)
+      // Label
       ctx.textAlign = 'left';
       ctx.fillStyle = '#000000';
       ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
       ctx.fillText(stat.label, boxX + 24 * scaleFactor, cy + boxH / 2 + 8 * scaleFactor);
 
-      // Value & Unit (Right) - 修复对齐
+      // Value & Unit (Mixed Weight)
       ctx.textAlign = 'right';
       let currentX = boxX + boxW - 24 * scaleFactor;
       const baselineY = cy + boxH / 2 + 8 * scaleFactor;
 
-      // 1. Draw static unit
       if (stat.unit) {
         ctx.fillStyle = statLabelColor;
         ctx.font = `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
@@ -1006,19 +999,15 @@ jQuery(async () => {
         currentX -= ctx.measureText(stat.unit).width + 6 * scaleFactor;
       }
 
-      // 2. Draw value with intelligent splitting
       const parts = stat.value.split(/(\d+\.?\d*|:)/g).filter(p => p !== '');
-
       for (let j = parts.length - 1; j >= 0; j--) {
         const p = parts[j];
         const isNum = /^\d+\.?\d*$/.test(p);
         const isTimeSep = p === ':';
-
         ctx.font = isNum
           ? `700 ${24 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`
           : `300 ${22 * scaleFactor}px "LXGW Neo XiHei", "PingFang SC", sans-serif`;
         ctx.fillStyle = isNum || isTimeSep ? statValueColor : statLabelColor;
-
         ctx.fillText(p, currentX, cy + boxH / 2 + (isNum ? 9 : 8) * scaleFactor);
         currentX -= ctx.measureText(p).width + (j > 0 ? 2 * scaleFactor : 0);
       }
