@@ -311,13 +311,14 @@ jQuery(async () => {
       text = await fetchChatFile(`/chats/${encodeURIComponent(characterName)}/${encodedFileName}`);
     }
 
-    if (!text) return { words: 0, count: 0 };
+    if (!text) return { words: 0, count: 0, userCount: 0, earliestUserTime: null };
 
     try {
       const lines = text.trim().split('\n').filter(l => l.trim());
       let totalWords = 0;
       let validMessages = 0;
-      let earliestTimeInFile = null;
+      let userMessages = 0;
+      let earliestUserTimeInFile = null;
 
       lines.forEach(line => {
         try {
@@ -327,11 +328,14 @@ jQuery(async () => {
             totalWords += countWordsInMessage(m.mes || '');
             validMessages++;
 
-            // 提取该文件的最早时间
-            if (m.send_date) {
-              const msgDate = parseSillyTavernDate(m.send_date);
-              if (msgDate && (!earliestTimeInFile || msgDate < earliestTimeInFile)) {
-                earliestTimeInFile = msgDate;
+            // 统计用户消息数并提取最早的用户时间
+            if (m.is_user === true) {
+              userMessages++;
+              if (m.send_date) {
+                const msgDate = parseSillyTavernDate(m.send_date);
+                if (msgDate && (!earliestUserTimeInFile || msgDate < earliestUserTimeInFile)) {
+                  earliestUserTimeInFile = msgDate;
+                }
               }
             }
           }
@@ -341,11 +345,12 @@ jQuery(async () => {
       return {
         words: totalWords,
         count: validMessages,
-        earliestTime: earliestTimeInFile
+        userCount: userMessages,
+        earliestTime: earliestUserTimeInFile
       };
     } catch (e) {
       if (DEBUG) console.error(`Parsing error for chat ${fileName}:`, e);
-      return { words: 0, count: 0, earliestTime: null };
+      return { words: 0, count: 0, userCount: 0, earliestTime: null };
     }
   }
 
@@ -527,6 +532,8 @@ jQuery(async () => {
       try {
         let totalWordsCalculated = 0;
         let totalMessagesCalculated = 0;
+        let totalUserMessagesCalculated = 0;
+        let absoluteEarliestUserTime = null;
         let successCount = 0;
 
         const batchSize = 10;
@@ -538,35 +545,54 @@ jQuery(async () => {
             if (res.count > 0 || res.words > 0) {
               totalWordsCalculated += res.words;
               totalMessagesCalculated += res.count;
+              totalUserMessagesCalculated += (res.userCount || 0);
               successCount++;
 
-              // 寻找绝对最早的初遇时间
-              if (res.earliestTime && (!earliestTime || res.earliestTime < earliestTime)) {
-                earliestTime = res.earliestTime;
+              // 寻找绝对最早的 *用户* 初遇时间
+              if (res.earliestTime && (!absoluteEarliestUserTime || res.earliestTime < absoluteEarliestUserTime)) {
+                absoluteEarliestUserTime = res.earliestTime;
               }
             }
           });
         }
 
-        // 如果成功获取到了任何实际数据，则覆盖元数据估值
+        // 如果成功获取到了任何实际数据
         if (successCount > 0) {
-          estimatedWords = totalWordsCalculated;
-          totalMessagesFromChats = totalMessagesCalculated;
-          if (DEBUG) console.log(`全量真实统计覆盖成功: ${totalWordsCalculated} 字`);
-        } else {
-          if (DEBUG) console.warn('全量读取失败或无有效内容，保持元数据估算值');
+          // 如果一条用户消息都没有，则视为尚未互动
+          if (totalUserMessagesCalculated === 0) {
+            if (DEBUG) console.log('全量统计完成，但未发现用户消息，判定为尚未互动');
+            return {
+              messageCount: 0,
+              wordCount: 0,
+              firstTime: null,
+              totalDuration: 0,
+              totalSizeBytes: totalSizeBytesRaw,
+              chatFilesCount
+            };
+          }
+
+          if (DEBUG) console.log(`全量真实统计成功: ${totalWordsCalculated} 字, 包含 ${totalUserMessagesCalculated} 条用户消息`);
+
+          return {
+            messageCount: totalMessagesCalculated,
+            wordCount: totalWordsCalculated,
+            firstTime: absoluteEarliestUserTime,
+            totalDuration: totalDurationSeconds,
+            totalSizeBytes: totalSizeBytesRaw,
+            chatFilesCount
+          };
         }
       } catch (sumError) {
         if (DEBUG) console.error('全量统计过程出错:', sumError);
       }
 
-      // 如果没有任何消息，直接返回 0 状态
+      // 回退逻辑 (如果全量统计失败，且元数据也没有显示任何消息，则返回 0 状态)
       if (totalMessagesFromChats === 0) {
         return {
           messageCount: 0,
           wordCount: 0,
-          firstTime: earliestTime,
-          totalDuration: totalDurationSeconds,
+          firstTime: null,
+          totalDuration: 0,
           totalSizeBytes: totalSizeBytesRaw,
           chatFilesCount
         };

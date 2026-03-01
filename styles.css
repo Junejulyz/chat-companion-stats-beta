@@ -78,12 +78,6 @@
   min-height: 24px;
 }
 
-/* Indentation for character row (no checkbox) */
-.ccs-stat-item:not(.ccs-share-option) {
-  padding-left: 18px;
-  /* Match checkbox + margin width */
-}
-
 /* Styles for share option checkboxes and labels */
 .ccs-share-option input[type="checkbox"] {
   margin-right: 5px;
