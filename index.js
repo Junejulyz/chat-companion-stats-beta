@@ -1,7 +1,7 @@
 import { getContext } from "../../../extensions.js";
 import { getPastCharacterChats } from '../../../../script.js';
 
-const extensionName = "chat-companion-stats";
+const extensionName = "chat-companion-stats-beta";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
 const DEBUG = true;
 
