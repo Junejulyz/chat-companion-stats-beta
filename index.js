@@ -44,6 +44,10 @@ jQuery(async () => {
   // 从 localStorage 加载上次选择的风格，默认为 'modern-light'
   let shareStyle = localStorage.getItem('ccs-share-style') || 'modern-light';
   let currentAdvancedStats = null;
+  // 核心功能：全局缓存准确的初遇时间，避免在扫描模式间切换时发生横跳
+  const accurateEncounterTimeCache = {};
+  // 核心功能：全局缓存准确的字数/体积比，校准估算系统
+  const accurateWordRatioCache = {};
 
   // 加载HTML using dynamic path with cache buster
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html?v=${Date.now()}`);
@@ -448,7 +452,7 @@ jQuery(async () => {
       let totalWords = 0;
       let validMessages = 0;
       let userMessages = 0;
-      let earliestUserTimeInFile = null;
+      let earliestTimeInFile = null;
       const dayMap = {};
 
       messagesArray.forEach(m => {
@@ -467,9 +471,10 @@ jQuery(async () => {
               // 记录最早的用户时间
               if (m.is_user === true) {
                 userMessages++;
-                if (!earliestUserTimeInFile || msgDate < earliestUserTimeInFile) {
-                  earliestUserTimeInFile = msgDate;
-                }
+              }
+              // 不限制发言者是谁，记录绝对的最早消息发生时间
+              if (!earliestTimeInFile || msgDate < earliestTimeInFile) {
+                earliestTimeInFile = msgDate;
               }
             }
           }
@@ -480,7 +485,7 @@ jQuery(async () => {
         words: totalWords,
         count: validMessages,
         userCount: userMessages,
-        earliestTime: earliestUserTimeInFile,
+        earliestTime: earliestTimeInFile,
         dayMap
       };
     } catch (e) {
@@ -609,34 +614,94 @@ jQuery(async () => {
       let totalSizeBytesRaw = 0;
       let earliestTime = null;
       let totalDurationSeconds = 0;
+      let parseableFilesInfo = [];
+      let unparseableFiles = [];
+      let hasInteraction = false;
 
       if (chatFilesCount === 0) return { messageCount: 0, wordCount: 0, firstTime: null, totalDuration: 0, totalSizeBytes: 0, chatFilesCount: 0 };
 
       // 1. 快速计算基础数据 (基于 Metadata)
       chats.forEach(chat => {
-        totalMessagesFromMetadata += parseInt(chat.chat_items) || 0;
+        const itemsCount = parseInt(chat.chat_items) || 0;
+        totalMessagesFromMetadata += itemsCount;
         
+        let sizeBytes = 0;
         const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
         const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
-        if (sizeMatchMB) totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
-        else if (sizeMatchKB) totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
-        else totalSizeBytesRaw += parseFloat(chat.file_size) || 0;
+        if (sizeMatchMB) sizeBytes = parseFloat(sizeMatchMB[1]) * 1024 * 1024;
+        else if (sizeMatchKB) sizeBytes = parseFloat(sizeMatchKB[1]) * 1024;
+        else sizeBytes = parseFloat(chat.file_size) || 0;
+        
+        totalSizeBytesRaw += sizeBytes;
+
+        // 如果任何一个文件里的消息超过1条，或者没有明确记录条数但文件很大(>5KB)，认定发生了实质互动
+        if (itemsCount > 1) {
+          hasInteraction = true;
+        } else if (itemsCount === 0 && sizeBytes > 5 * 1024) {
+          hasInteraction = true;
+        }
 
         if (chat.file_name) {
           const timeInfo = parseTimeFromFilename(chat.file_name);
-          if (timeInfo) {
+          if (timeInfo && timeInfo.dateObject) {
             totalDurationSeconds += timeInfo.totalSeconds;
-            if (!earliestTime || (timeInfo.dateObject && timeInfo.dateObject < earliestTime)) {
+            parseableFilesInfo.push({ name: chat.file_name, date: timeInfo.dateObject });
+            
+            if (!earliestTime || timeInfo.dateObject < earliestTime) {
                earliestTime = timeInfo.dateObject;
             }
+          } else {
+            // 如果无法从名字解析出时间，作为存疑文件保留
+            unparseableFiles.push(chat.file_name);
           }
         }
       });
 
-      let estimatedWords = Math.round((totalSizeBytesRaw / 1024) * 32.5);
+      // 如果完全没有互动（所有的记录都只有开场白=1条，或者完全为空），强行阻断所有统计数据并清空UI
+      if (!hasInteraction) {
+        if (DEBUG) console.log("[StatsDebug] All files have 1 or fewer messages. Determined as 'Not Interacted'.");
+        return { messageCount: 0, wordCount: 0, firstTime: null, totalDuration: 0, totalSizeBytes: 0, chatFilesCount };
+      }
 
-      // 如果不是深度扫描，直接返回基础数据
+      // 获取当前的精准字数占比（如果有经过深度校准，则不再使用32.5的通用估值）
+      let currentRatio = 32.5;
+      if (accurateWordRatioCache[characterId]) {
+          currentRatio = accurateWordRatioCache[characterId];
+      }
+      let estimatedWords = Math.round((totalSizeBytesRaw / 1024) * currentRatio);
+
+      // 如果不是深度扫描，直接返回基础数据，但运用更为宽广的“精准打击”或读取锁定缓存
       if (!forceDeepScan) {
+        if (accurateEncounterTimeCache[characterId]) {
+           // 方案B：直接调用曾经找到的那个锁定好的绝对真理，防止被回退
+           earliestTime = accurateEncounterTimeCache[characterId];
+        } else {
+           // 方案A：扩大打击范围，获取名义上最老的3个文件
+           parseableFilesInfo.sort((a,b) => a.date - b.date);
+           let filesToCheck = parseableFilesInfo.slice(0, 3).map(f => f.name);
+           
+           if (unparseableFiles.length > 0) {
+              filesToCheck = filesToCheck.concat(unparseableFiles.slice(0, 3)); // 最多额外检查3个异常文件
+           }
+
+           if (filesToCheck.length > 0) {
+              const charNameForApi = getCurrentCharacterName();
+              for (const file of filesToCheck) {
+                 const fileStats = await getChatFileStats(file, characterId, charNameForApi);
+                 if (fileStats && fileStats.earliestTime) {
+                    if (!earliestTime || fileStats.earliestTime < earliestTime) {
+                       earliestTime = fileStats.earliestTime;
+                    }
+                 }
+              }
+           }
+           
+           // 把首发找到的准确时间写入内存保险箱
+           if (earliestTime) {
+              accurateEncounterTimeCache[characterId] = earliestTime;
+           }
+        }
+
         return {
           messageCount: totalMessagesFromMetadata,
           wordCount: estimatedWords,
@@ -656,7 +721,7 @@ jQuery(async () => {
       let totalWordsCalculated = 0;
       let totalMessagesCalculated = 0;
       let totalUserMessagesCalculated = 0;
-      let absoluteEarliestUserTime = null;
+      let absoluteEarliestTime = null;
       const globalDayMap = {};
 
       const batchSize = 3; // 降低并发数量保护服务器
@@ -681,19 +746,29 @@ jQuery(async () => {
                 globalDayMap[date] = (globalDayMap[date] || 0) + count;
               }
             }
-            if (res.earliestTime && (!absoluteEarliestUserTime || res.earliestTime < absoluteEarliestUserTime)) {
-              absoluteEarliestUserTime = res.earliestTime;
+            if (res.earliestTime && (!absoluteEarliestTime || res.earliestTime < absoluteEarliestTime)) {
+              absoluteEarliestTime = res.earliestTime;
             }
           }
         });
       }
 
       const advanced = calculateAdvancedStats(globalDayMap);
+      
+      // 深度扫描找出了贯穿所有聊天系统的绝对真理，霸道覆盖并永久锁定缓存！
+      if (absoluteEarliestTime) {
+          accurateEncounterTimeCache[characterId] = absoluteEarliestTime;
+      }
+      
+      // 如果是一次完整的深度分析，记录这名角色专属的字数密度（字数 / 每KB体积）
+      if (forceDeepScan && totalSizeBytesRaw > 0 && totalWordsCalculated > 0) {
+          accurateWordRatioCache[characterId] = totalWordsCalculated / (totalSizeBytesRaw / 1024);
+      }
 
       return {
         messageCount: totalMessagesCalculated || totalMessagesFromMetadata,
         wordCount: totalWordsCalculated || estimatedWords,
-        firstTime: absoluteEarliestUserTime || earliestTime,
+        firstTime: absoluteEarliestTime || earliestTime,
         totalDuration: totalDurationSeconds,
         totalSizeBytes: totalSizeBytesRaw,
         chatFilesCount,
@@ -814,6 +889,17 @@ jQuery(async () => {
     try {
       const stats = await getFullStats(deepScan, onProgress);
       if (DEBUG) console.log('Stats received in updateStats:', stats);
+
+      if (!stats) {
+        if (DEBUG) console.log('[StatsDebug] No stats available (no character selected). Zeroing UI.');
+        $("#ccs-messages").text('--');
+        $("#ccs-words").text('--');
+        $("#ccs-start").text('--');
+        $("#ccs-days").text('--');
+        $("#ccs-total-size").text('--');
+        updateActionButtonsState(0);
+        return;
+      }
 
       const chatFilesCount = stats.chatFilesCount || 0;
 
@@ -2187,43 +2273,76 @@ jQuery(async () => {
           let totalMessages = 0;
           let totalSizeBytesRaw = 0;
           let earliestTime = null;
+          let hasInteraction = false;
+          let parseableFilesInfo = [];
+          let unparseableFiles = [];
 
           chats.forEach(chat => {
             // Count messages
-            totalMessages += (parseInt(chat.chat_items) || 0);
+            const itemsCount = parseInt(chat.chat_items) || 0;
+            totalMessages += itemsCount;
 
             // Calculate size
+            let sizeBytes = 0;
             const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
             const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
             const sizeAsNumber = parseFloat(chat.file_size);
 
             if (sizeMatchMB) {
-              totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
+              sizeBytes = parseFloat(sizeMatchMB[1]) * 1024 * 1024;
             } else if (sizeMatchKB) {
-              totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
+              sizeBytes = parseFloat(sizeMatchKB[1]) * 1024;
             } else if (!isNaN(sizeAsNumber)) {
-              totalSizeBytesRaw += sizeAsNumber;
+              sizeBytes = sizeAsNumber;
+            }
+            
+            totalSizeBytesRaw += sizeBytes;
+
+            // 严格的互动认定
+            if (itemsCount > 1 || (itemsCount === 0 && sizeBytes > 5 * 1024)) {
+                hasInteraction = true;
             }
 
             // Find earliest date
             if (chat.file_name) {
               const timeInfo = parseTimeFromFilename(chat.file_name);
-              if (timeInfo && timeInfo.dateObject && (!earliestTime || timeInfo.dateObject < earliestTime)) {
-                earliestTime = timeInfo.dateObject;
-              }
-            }
-            if (chat.last_mes) {
-              const date = parseSillyTavernDate(chat.last_mes);
-              if (date && (!earliestTime || date < earliestTime)) {
-                earliestTime = date;
+              if (timeInfo && timeInfo.dateObject) {
+                parseableFilesInfo.push({ name: chat.file_name, date: timeInfo.dateObject });
+                if (!earliestTime || timeInfo.dateObject < earliestTime) {
+                  earliestTime = timeInfo.dateObject;
+                }
+              } else {
+                unparseableFiles.push(chat.file_name);
               }
             }
           });
 
-          // Only include characters with actual interaction (more than just the greeting)
-          if (totalMessages <= 1) {
-             console.log(`[GlobalStats] => Interactions too low for ${char.name}, skipping.`);
+          // Only include characters with actual interaction
+          if (!hasInteraction) {
+             console.log(`[GlobalStats] => No real interactions for ${char.name}, skipping.`);
              continue;
+          }
+
+          // 全局排行：运用精准打击与缓存共享策略统一时间
+          if (accurateEncounterTimeCache[charId]) {
+             earliestTime = accurateEncounterTimeCache[charId];
+          } else {
+             parseableFilesInfo.sort((a,b) => a.date - b.date);
+             // 全局扫描要求速度极快，只查名义上最老的2个文件
+             let filesToCheck = parseableFilesInfo.slice(0, 2).map(f => f.name); 
+             if (unparseableFiles.length > 0) filesToCheck = filesToCheck.concat(unparseableFiles.slice(0, 2));
+
+             if (filesToCheck.length > 0) {
+               for (const file of filesToCheck) {
+                  const fileStats = await getChatFileStats(file, charId, char.name);
+                  if (fileStats && fileStats.earliestTime) {
+                     if (!earliestTime || fileStats.earliestTime < earliestTime) {
+                        earliestTime = fileStats.earliestTime;
+                     }
+                  }
+               }
+               if (earliestTime) accurateEncounterTimeCache[charId] = earliestTime;
+             }
           }
 
           let days = 0;
