@@ -1,11 +1,14 @@
+console.log("[CCStats] Script source file loaded.");
+window.ccs_loaded = true;
 import { getContext } from "../../../extensions.js";
 import { getPastCharacterChats } from '../../../../script.js';
 
-const extensionName = "chat-companion-stats-beta";
+const extensionName = "chat-companion-stats";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
 const DEBUG = true;
 
 jQuery(async () => {
+  if (DEBUG) console.log("[CCStats] Booting...");
   // 加载CSS文件 using dynamic path
   $('head').append(`<link rel="stylesheet" type="text/css" href="${extensionWebPath}/styles.css">`);
 
@@ -40,13 +43,15 @@ jQuery(async () => {
 
   // 从 localStorage 加载上次选择的风格，默认为 'modern-light'
   let shareStyle = localStorage.getItem('ccs-share-style') || 'modern-light';
+  let currentAdvancedStats = null;
 
   // 加载HTML using dynamic path with cache buster
   const settingsHtml = await $.get(`${extensionWebPath}/settings.html?v=${Date.now()}`);
   $("#extensions_settings").append(settingsHtml);
+  if (DEBUG) console.log("[CCStats] UI Template loaded.");
   
   // Move modals to body to prevent clipping by parent containers and fix fixed positioning
-  $("#ccs-preview-modal, #ccs-global-modal").appendTo("body").removeClass('ccs-modal-visible').hide();
+  $("#ccs-preview-modal, #ccs-global-modal, #ccs-advanced-modal").appendTo("body").removeClass('ccs-modal-visible').hide();
 
   // 同步下拉框的选择状态
   $("#ccs-style-select").val(shareStyle);
@@ -197,7 +202,27 @@ jQuery(async () => {
     }
   }
 
-  // 计算消息的字数 (核心过滤逻辑)
+  // 尝试获取当前用户标识 (已不再强制需要，API 可自动处理)
+  function getUserHandle() {
+    const context = getContext();
+    // 1. 尝试从 context 直接获取
+    if (context.user_handle) return context.user_handle;
+
+    // 2. 尝试从头像 URL 提取
+    const messages = document.querySelectorAll('#chat .mes');
+    for (const msg of messages) {
+       if (msg.getAttribute('is_user') !== 'true') {
+         const avatarImg = msg.querySelector('.avatar img');
+         if (avatarImg && avatarImg.src) {
+           const src = avatarImg.src;
+           // 匹配格式: /characters/user_handle/name.png
+           const match = src.match(/\/characters\/([^\/]+)\//);
+           if (match && match[1] !== 'characters') return match[1];
+         }
+       }
+    }
+    return null;
+  }
   function countWordsInMessage(message) {
     if (!message) return 0;
 
@@ -329,137 +354,138 @@ jQuery(async () => {
     return null;
   }
 
-  // 获取特定文件的第一条消息时间
-  async function getEarliestMessageDate(fileName) {
-    const context = getContext();
-    const charId = context.characterId;
-    const encodedFileName = encodeURIComponent(fileName);
-    let text = null;
+  // 获取特定文件的第一条消息时间 (同步使用 API)
+  async function getEarliestMessageDate(fileName, charId) {
+    try {
+      const response = await fetch('/api/chats/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          avatar_url: charId,
+          file_name: fileName
+        })
+      });
 
-    // 尝试多种路径策略 (SillyTavern 不同的版本对聊天文件夹的命名不同)
-    const paths = [];
-
-    // 1. 基于 characterId (头像文件名)
-    if (charId && typeof charId === 'string' && charId !== '0') {
-      // 策略 A: 去掉后缀 (Lucien.png -> Lucien)
-      const folderNoExt = charId.includes('.') ? charId.substring(0, charId.lastIndexOf('.')) : charId;
-      paths.push(`/chats/${folderNoExt}/${encodedFileName}`);
-
-      // 策略 B: 保留后缀 (Lucien.png -> Lucien.png)
-      paths.push(`/chats/${charId}/${encodedFileName}`);
-    }
-
-    // 2. 基于解析出的角色名 (从文件名提取)
-    const characterName = fileName.split(' - ')[0];
-    if (characterName) {
-      paths.push(`/chats/${encodeURIComponent(characterName)}/${encodedFileName}`);
-    }
-
-    // 3. 基于当前显示的名称
-    const currentName = getCurrentCharacterName();
-    if (currentName && currentName !== characterName) {
-      paths.push(`/chats/${encodeURIComponent(currentName)}/${encodedFileName}`);
-    }
-
-    for (const path of paths) {
-      try {
-        const response = await fetch(path, { credentials: 'same-origin' });
-        if (response.ok) {
-          text = await response.text();
-          if (text) break;
+      if (response.ok) {
+        const chatData = await response.json();
+        if (Array.isArray(chatData)) {
+          for (const m of chatData) {
+            if (m && m.send_date) {
+              const date = parseSillyTavernDate(m.send_date);
+              if (date) return date;
+            }
+          }
         }
-      } catch (e) { }
-    }
-
-    if (!text) return null;
-
-    const lines = text.trim().split('\n');
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const m = JSON.parse(line);
-        if (m && m.send_date) {
-          const date = parseSillyTavernDate(m.send_date);
-          if (date) return date;
-        }
-      } catch (e) { }
+      }
+    } catch (e) {
+      if (DEBUG) console.error(`[StatsDebug] Error in getEarliestMessageDate:`, e);
     }
     return null;
   }
 
-  // 获取单个聊天文件的统计数据 (带有路径回退逻辑)
-  async function getChatFileStats(fileName) {
-    const context = getContext();
-    const charId = context.characterId;
-    const encodedFileName = encodeURIComponent(fileName);
-    let text = null;
+  // 获取单个聊天文件的统计数据 (使用 SillyTavern 官方 API 接口)
+  async function getChatFileStats(fileName, charId, charName) {
+    if (DEBUG) console.log(`[StatsDebug] Requesting chat content via API: ${fileName} for char: ${charId}, name: ${charName}`);
+    
+    let chatData = null;
+    try {
+      // API expects the filename without the .jsonl extension
+      let cleanFileName = fileName;
+      if (cleanFileName.endsWith('.jsonl')) {
+        cleanFileName = cleanFileName.replace('.jsonl', '');
+      } else if (cleanFileName.endsWith('.json')) {
+        cleanFileName = cleanFileName.replace('.json', '');
+      }
 
-    // 尝试多种路径策略
-    const paths = [];
-    if (charId && typeof charId === 'string' && charId !== '0') {
-      const folderNoExt = charId.includes('.') ? charId.substring(0, charId.lastIndexOf('.')) : charId;
-      paths.push(`/chats/${folderNoExt}/${encodedFileName}`);
-      paths.push(`/chats/${charId}/${encodedFileName}`);
-    }
-    const characterName = fileName.split(' - ')[0];
-    if (characterName) {
-      paths.push(`/chats/${encodeURIComponent(characterName)}/${encodedFileName}`);
-    }
-    const currentName = getCurrentCharacterName();
-    if (currentName && currentName !== characterName) {
-      paths.push(`/chats/${encodeURIComponent(currentName)}/${encodedFileName}`);
+      // 使用官方 API 获取聊天内容，必须包含 ch_name
+      const response = await fetch('/api/chats/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ch_name: charName,
+          avatar_url: charId, // 备用标识
+          file_name: cleanFileName
+        })
+      });
+
+      if (DEBUG) console.log(`[StatsDebug] API Response Status: ${response.status}`);
+      
+      if (response.ok) {
+        chatData = await response.json();
+      }
+    } catch (e) {
+      if (DEBUG) console.error(`[StatsDebug] API fetch error:`, e);
     }
 
-    for (const path of paths) {
-      try {
-        const response = await fetch(path, { credentials: 'same-origin' });
-        if (response.ok) {
-          text = await response.text();
-          if (text) break;
-        }
-      } catch (e) { }
+    // 兼容层：SillyTavern 的 /api/chats/get 返回格式可能是一个 Object 包含一个数组，或者就是一个字典
+    let messagesArray = [];
+    if (Array.isArray(chatData)) {
+      messagesArray = chatData;
+    } else if (chatData && typeof chatData === 'object') {
+      // 如果不是纯数组，尝试在它的属性里找真正的聊天数据
+      // 常见结构如 { chat: [...] } 或者对象属性直接是索引 {'0': {...}, '1': {...}}
+      if (Array.isArray(chatData.chat)) {
+        messagesArray = chatData.chat;
+      } else if (Array.isArray(chatData.messages)) {
+        messagesArray = chatData.messages;
+      } else {
+        // 尝试把类似字典的对象强行转成数组
+        messagesArray = Object.values(chatData).filter(item => item && typeof item === 'object' && (item.mes !== undefined || item.is_user !== undefined));
+      }
     }
 
-    if (!text) return { words: 0, count: 0, userCount: 0, earliestUserTime: null };
+    if (messagesArray.length === 0) {
+      if (DEBUG) {
+        console.warn(`[StatsDebug] Failed to retrieve or parse chat data for: ${fileName}`);
+        let dataPreview = "null";
+        try { if (chatData) dataPreview = JSON.stringify(chatData).substring(0, 300); } catch(e){}
+        console.log(`[StatsDebug] Received Data type: ${typeof chatData}, Preview:`, dataPreview);
+      }
+      return { words: 0, count: 0, userCount: 0, earliestTime: null, dayMap: {} };
+    }
 
     try {
-      const lines = text.trim().split('\n').filter(l => l.trim());
       let totalWords = 0;
       let validMessages = 0;
       let userMessages = 0;
       let earliestUserTimeInFile = null;
+      const dayMap = {};
 
-      lines.forEach(line => {
-        try {
-          const m = JSON.parse(line);
-          // 确保是有效的消息对象
-          if (m && (m.mes !== undefined || m.is_user !== undefined)) {
-            totalWords += countWordsInMessage(m.mes || '');
-            validMessages++;
+      messagesArray.forEach(m => {
+        if (m && (m.mes !== undefined || m.is_user !== undefined)) {
+          totalWords += countWordsInMessage(m.mes || '');
+          validMessages++;
 
-            // 统计用户消息数并提取最早的用户时间
-            if (m.is_user === true) {
-              userMessages++;
-              if (m.send_date) {
-                const msgDate = parseSillyTavernDate(m.send_date);
-                if (msgDate && (!earliestUserTimeInFile || msgDate < earliestUserTimeInFile)) {
+          // 统计发送日期
+          if (m.send_date) {
+            const msgDate = parseSillyTavernDate(m.send_date);
+            if (msgDate) {
+              // 记录处理日期（用于 Streak/Peak）
+              const dateKey = `${msgDate.getFullYear()}-${String(msgDate.getMonth() + 1).padStart(2, '0')}-${String(msgDate.getDate()).padStart(2, '0')}`;
+              dayMap[dateKey] = (dayMap[dateKey] || 0) + 1;
+
+              // 记录最早的用户时间
+              if (m.is_user === true) {
+                userMessages++;
+                if (!earliestUserTimeInFile || msgDate < earliestUserTimeInFile) {
                   earliestUserTimeInFile = msgDate;
                 }
               }
             }
           }
-        } catch (e) { }
+        }
       });
 
       return {
         words: totalWords,
         count: validMessages,
         userCount: userMessages,
-        earliestTime: earliestUserTimeInFile
+        earliestTime: earliestUserTimeInFile,
+        dayMap
       };
     } catch (e) {
-      if (DEBUG) console.error(`Parsing error for chat ${fileName}:`, e);
-      return { words: 0, count: 0, userCount: 0, earliestTime: null };
+      if (DEBUG) console.error(`[StatsDebug] Error processing chat data:`, e);
+      return { words: 0, count: 0, userCount: 0, earliestTime: null, dayMap: {} };
     }
   }
 
@@ -541,230 +567,192 @@ jQuery(async () => {
   }
 
   // 获取完整的统计数据
-  async function getFullStats() {
+  async function getFullStats(forceDeepScan = false, onProgress = null) {
     const context = getContext();
-    // 兼容不同版本的 SillyTavern 字段名
     let characterId = context.characterId || context.character_id;
 
-    if (DEBUG) console.log('Current Context:', context);
-
-    if (!characterId) {
-      if (DEBUG) console.log('未从 context 找到角色ID, 尝试从 DOM/全局变量获取');
-      // 尝试从全局变量获取 (SillyTavern 常用变量)
-      if (typeof window.selected_character !== 'undefined' && window.characters && window.characters[window.selected_character]) {
-        characterId = window.characters[window.selected_character].avatar;
-      }
+    if (DEBUG) {
+      console.log(`[StatsDebug] getFullStats called (DeepScan=${forceDeepScan})`);
+      console.log(`[StatsDebug] Context Debug:`, { 
+        characterId, 
+        selected: context.selected_character,
+        charsCount: context.characters?.length,
+        hasWindowChars: !!window.characters 
+      });
     }
 
-    if (!characterId) {
-      if (DEBUG) console.log('仍然未找到当前角色ID');
-      return {
-        messageCount: 0,
-        wordCount: 0,
-        firstTime: null,
-        totalDuration: 0,
-        totalSizeBytes: 0,
-        chatFilesCount: 0
-      };
-    }
+    if (!characterId) return null;
 
     try {
+      // 1. 先尝试获取一次列表 (酒馆的 getPastCharacterChats 支持数字索引)
       const chats = await getPastCharacterChats(characterId);
-      if (DEBUG) console.log(`获取到 ${characterId} 的聊天记录:`, chats);
-
-      let totalMessagesFromChats = 0;
-      let totalSizeKB = 0;
-      let earliestTime = null;
-      let totalDurationSeconds = 0;
-      let totalSizeBytesRaw = 0;
-      let maxMessagesInSingleChat = 0;
       const chatFilesCount = Array.isArray(chats) ? chats.length : 0;
 
-      if (chatFilesCount === 0) {
-        if (DEBUG) console.log('该角色尚无历史聊天记录');
-        return {
-          messageCount: 0,
-          wordCount: 0,
-          firstTime: null,
-          totalDuration: 0,
-          totalSizeBytes: 0,
-          chatFilesCount: 0
-        };
+      // 2. 如果当前 ID 是数字，尝试利用列表进行反向修复，确保 API 能用
+      if (!isNaN(characterId) || characterId === '0') {
+         if (chatFilesCount > 0 && chats[0].file_name) {
+            const charNameFromObs = chats[0].file_name.split(' - ')[0];
+            characterId = `${charNameFromObs}.png`;
+            if (DEBUG) console.log(`[StatsDebug] ID upscaled from index to filename: ${characterId}`);
+         } else {
+            // 尝试通过 context 索引修复
+            const chars = context.characters || window.characters || [];
+            const idx = (context.selected_character !== undefined) ? context.selected_character : window.selected_character;
+            if (chars && chars[idx] && chars[idx].avatar) {
+               characterId = chars[idx].avatar;
+               if (DEBUG) console.log(`[StatsDebug] ID upscaled via context index: ${characterId}`);
+            }
+         }
       }
 
-      // --- 【改进】精准定位初遇时间 ---
-      // 1. 给所有文件预备一个「排序权重时间」
-      const sortedChats = [...chats].map(chat => {
-        const fileTime = parseTimeFromFilename(chat.file_name);
-        const lastMesTime = parseSillyTavernDate(chat.last_mes);
-        // 优先级：文件名时间 > 最后一条消息时间
-        const sortWeight = (fileTime && fileTime.dateObject) ? fileTime.dateObject.getTime() : (lastMesTime ? lastMesTime.getTime() : Infinity);
-        return { ...chat, sortWeight };
-      }).sort((a, b) => a.sortWeight - b.sortWeight);
+      let totalMessagesFromMetadata = 0;
+      let totalSizeBytesRaw = 0;
+      let earliestTime = null;
+      let totalDurationSeconds = 0;
 
-      // 1.5 这里必须设一个保底，防止 fetch 全部失败时依然有数据
-      if (sortedChats.length > 0 && sortedChats[0].sortWeight !== Infinity) {
-        earliestTime = new Date(sortedChats[0].sortWeight);
-      }
+      if (chatFilesCount === 0) return { messageCount: 0, wordCount: 0, firstTime: null, totalDuration: 0, totalSizeBytes: 0, chatFilesCount: 0 };
 
-      // 2. 取出前 5 个候选文件进行「点读」来微调
-      const topCandidates = sortedChats.slice(0, 5);
-      if (DEBUG) console.log('Top 5 candidates for first encounter:', topCandidates.map(c => c.file_name));
-
-      const candidateResults = await Promise.all(topCandidates.map(c => getEarliestMessageDate(c.file_name)));
-      const peekedEarliest = candidateResults.reduce((min, cur) => {
-        if (!cur) return min;
-        if (!min) return cur;
-        return cur < min ? cur : min;
-      }, null);
-
-      // 如果点读成功，使用点读的精准时间；否则保持 metadata 的保底时间
-      if (peekedEarliest) {
-        earliestTime = peekedEarliest;
-        if (DEBUG) console.log('Final refined earliestTime from peek:', earliestTime);
-      } else {
-        if (DEBUG) console.log('Peek failed or returned no dates, using metadata fallback:', earliestTime);
-      }
-
-      // --- 累计基础数据 ---
+      // 1. 快速计算基础数据 (基于 Metadata)
       chats.forEach(chat => {
-        const chatItems = parseInt(chat.chat_items) || 0;
-        totalMessagesFromChats += chatItems;
-        if (chatItems > maxMessagesInSingleChat) {
-          maxMessagesInSingleChat = chatItems;
-        }
-
+        totalMessagesFromMetadata += parseInt(chat.chat_items) || 0;
+        
         const sizeMatchKB = chat.file_size?.match(/([\d.]+)\s*KB/i);
         const sizeMatchMB = chat.file_size?.match(/([\d.]+)\s*MB/i);
-        if (sizeMatchMB) {
-          totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
-          totalSizeKB += parseFloat(sizeMatchMB[1]) * 1024;
-        } else if (sizeMatchKB) {
-          totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
-          totalSizeKB += parseFloat(sizeMatchKB[1]);
-        } else {
-          const rawSize = parseFloat(chat.file_size) || 0;
-          totalSizeBytesRaw += rawSize;
-          totalSizeKB += rawSize / 1024;
-        }
+        if (sizeMatchMB) totalSizeBytesRaw += parseFloat(sizeMatchMB[1]) * 1024 * 1024;
+        else if (sizeMatchKB) totalSizeBytesRaw += parseFloat(sizeMatchKB[1]) * 1024;
+        else totalSizeBytesRaw += parseFloat(chat.file_size) || 0;
 
         if (chat.file_name) {
           const timeInfo = parseTimeFromFilename(chat.file_name);
-          if (timeInfo) totalDurationSeconds += timeInfo.totalSeconds;
+          if (timeInfo) {
+            totalDurationSeconds += timeInfo.totalSeconds;
+            if (!earliestTime || (timeInfo.dateObject && timeInfo.dateObject < earliestTime)) {
+               earliestTime = timeInfo.dateObject;
+            }
+          }
         }
       });
 
-      // 默认先使用估算值 (密度取 32.5)
-      let estimatedWords = Math.round(totalSizeKB * 32.5);
+      let estimatedWords = Math.round((totalSizeBytesRaw / 1024) * 32.5);
 
-      // 【性能保护】如果聊天过记录总文件过大，直接跳过全量真实解析防止浏览器崩溃/卡死
-      if (totalSizeKB > 30720) { // > 30MB
-        if (DEBUG) console.log(`[Performance Check] 体积过大(${totalSizeKB.toFixed(2)}KB)，启用「高速估算模式」以保护内存。`);
+      // 如果不是深度扫描，直接返回基础数据
+      if (!forceDeepScan) {
         return {
-          messageCount: totalMessagesFromChats > 0 ? totalMessagesFromChats : Math.max(2, Math.round(totalSizeKB * 1.5)),
+          messageCount: totalMessagesFromMetadata,
           wordCount: estimatedWords,
           firstTime: earliestTime,
           totalDuration: totalDurationSeconds,
           totalSizeBytes: totalSizeBytesRaw,
-          chatFilesCount
+          chatFilesCount,
+          advanced: null
         };
       }
 
-      // 尝试进行真实全量统计 (仅在数据量适中时)
-      try {
-        let totalWordsCalculated = 0;
-        let totalMessagesCalculated = 0;
-        let totalUserMessagesCalculated = 0;
-        let maxMessagesInScan = 0;
-        let absoluteEarliestUserTime = null;
-        let successCount = 0;
+      // 2. 深度扫描 (基于 API 读取文件)
+      if (DEBUG) console.log(`[StatsDebug] Performing Deep Scan for ${chatFilesCount} files...`);
+      
+      const charNameForApi = getCurrentCharacterName();
 
-        const batchSize = 10;
-        for (let i = 0; i < chats.length; i += batchSize) {
-          const batch = chats.slice(i, i + batchSize);
-          const results = await Promise.all(batch.map(chat => getChatFileStats(chat.file_name)));
+      let totalWordsCalculated = 0;
+      let totalMessagesCalculated = 0;
+      let totalUserMessagesCalculated = 0;
+      let absoluteEarliestUserTime = null;
+      const globalDayMap = {};
 
-          results.forEach(res => {
-            if (res.count > 0 || res.words > 0) {
-              totalWordsCalculated += res.words;
-              totalMessagesCalculated += res.count;
-              totalUserMessagesCalculated += (res.userCount || 0);
-              successCount++;
+      const batchSize = 3; // 降低并发数量保护服务器
+      let processedFiles = 0;
+      for (let i = 0; i < chats.length; i += batchSize) {
+        const batch = chats.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(chat => getChatFileStats(chat.file_name, characterId, charNameForApi)));
 
-              // 记录分析到的最大单次对话消息数
-              if (res.count > maxMessagesInScan) {
-                maxMessagesInScan = res.count;
-              }
+        processedFiles += batch.length;
+        if (onProgress && chats.length > 0) {
+          const percent = Math.min(100, Math.floor((processedFiles / chats.length) * 100));
+          onProgress(percent, processedFiles, chats.length);
+        }
 
-              // 寻找绝对最早的 *用户* 初遇时间
-              if (res.earliestTime && (!absoluteEarliestUserTime || res.earliestTime < absoluteEarliestUserTime)) {
-                absoluteEarliestUserTime = res.earliestTime;
+        results.forEach(res => {
+          if (res.count > 0 || res.words > 0) {
+            totalWordsCalculated += res.words;
+            totalMessagesCalculated += res.count;
+            totalUserMessagesCalculated += (res.userCount || 0);
+            if (res.dayMap) {
+              for (const [date, count] of Object.entries(res.dayMap)) {
+                globalDayMap[date] = (globalDayMap[date] || 0) + count;
               }
             }
-          });
-        }
-
-        // 如果成功获取到了任何实际数据，以实测数据为准
-        if (successCount > 0) {
-          // 判定逻辑：必须至少有一条用户消息，且不能所有聊天都只有1条开场白 (以实测 count 为准)
-          if (totalUserMessagesCalculated === 0 || maxMessagesInScan <= 1) {
-            if (DEBUG) console.log(`判定为尚未互动: 用户发言=${totalUserMessagesCalculated}, 最大单场消息=${maxMessagesInScan}`);
-            return {
-              messageCount: 0,
-              wordCount: 0,
-              firstTime: null,
-              totalDuration: 0,
-              totalSizeBytes: totalSizeBytesRaw,
-              chatFilesCount
-            };
+            if (res.earliestTime && (!absoluteEarliestUserTime || res.earliestTime < absoluteEarliestUserTime)) {
+              absoluteEarliestUserTime = res.earliestTime;
+            }
           }
-
-          if (DEBUG) console.log(`全量真实统计成功: ${totalWordsCalculated} 字, 包含 ${totalUserMessagesCalculated} 条用户消息`);
-
-          return {
-            messageCount: totalMessagesCalculated,
-            wordCount: totalWordsCalculated,
-            firstTime: absoluteEarliestUserTime,
-            totalDuration: totalDurationSeconds,
-            totalSizeBytes: totalSizeBytesRaw,
-            chatFilesCount
-          };
-        }
-      } catch (sumError) {
-        if (DEBUG) console.error('全量统计过程出错:', sumError);
+        });
       }
 
-      // 回退逻辑 (如果全量统计失败，且元数据也没有显示任何有实质内容的会话)
-      if (maxMessagesInSingleChat <= 1) {
-        return {
-          messageCount: 0,
-          wordCount: 0,
-          firstTime: null,
-          totalDuration: 0,
-          totalSizeBytes: totalSizeBytesRaw,
-          chatFilesCount
-        };
-      }
+      const advanced = calculateAdvancedStats(globalDayMap);
 
       return {
-        messageCount: totalMessagesFromChats,
-        wordCount: estimatedWords,
-        firstTime: earliestTime,
+        messageCount: totalMessagesCalculated || totalMessagesFromMetadata,
+        wordCount: totalWordsCalculated || estimatedWords,
+        firstTime: absoluteEarliestUserTime || earliestTime,
         totalDuration: totalDurationSeconds,
         totalSizeBytes: totalSizeBytesRaw,
-        chatFilesCount
+        chatFilesCount,
+        advanced
       };
     } catch (error) {
-      if (DEBUG) console.error('getFullStats 运行出错:', error);
-      return {
-        messageCount: 0,
-        wordCount: 0,
-        firstTime: null,
-        totalDuration: 0,
-        totalSizeBytes: 0,
-        chatFilesCount: 0
-      };
+      if (DEBUG) console.error('[StatsDebug] getFullStats error:', error);
+      return null;
     }
+  }
+
+  // 计算连聊和高峰日
+  function calculateAdvancedStats(dayMap) {
+    const dates = Object.keys(dayMap).sort();
+    if (dates.length === 0) return null;
+
+    // 1. 高峰日
+    let peakDate = dates[0];
+    let peakCount = dayMap[peakDate];
+    for (const date of dates) {
+      if (dayMap[date] >= peakCount) { // 取最新的一天 (用 >=)
+        peakDate = date;
+        peakCount = dayMap[date];
+      }
+    }
+
+    // 2. 连聊计算
+    let longestStreak = 0;
+    let currentStreak = 0;
+    
+    // 转换为时间戳进行连续性检查 (以天为单位)
+    const dateObjects = dates.map(d => new Date(d + 'T00:00:00'));
+    
+    let tempStreak = 1;
+    let lastDateObj = dateObjects[0];
+    
+    for (let i = 1; i < dateObjects.length; i++) {
+      const diff = (dateObjects[i] - lastDateObj) / (1000 * 60 * 60 * 24);
+      if (diff === 1) {
+        tempStreak++;
+      } else if (diff > 1) {
+        longestStreak = Math.max(longestStreak, tempStreak);
+        tempStreak = 1;
+      }
+      lastDateObj = dateObjects[i];
+    }
+    longestStreak = Math.max(longestStreak, tempStreak);
+
+    // 计算今日对话条数
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayMessages = dayMap[todayStr] || 0;
+
+    return {
+      peakDate,
+      peakCount,
+      longestStreak,
+      todayMessages
+    };
   }
 
 
@@ -783,25 +771,29 @@ jQuery(async () => {
   }
 
   // 添加控制分享按钮状态的函数 (优先处理无互动状态)
-  function updateShareButtonState(messageCount) {
+  function updateActionButtonsState(messageCount) {
     const $shareButton = $("#ccs-share");
+    const $viewMoreButton = $("#ccs-view-more");
 
     // Priority Check: Disable if total message count is 1 or less
     if (messageCount <= 1) {
       $shareButton.prop('disabled', true).val('尚未互动');
-      if (DEBUG) console.log('updateShareButtonState: Disabled (messageCount <= 1)');
+      $viewMoreButton.prop('disabled', true).val('尚未互动');
+      if (DEBUG) console.log('updateActionButtonsState: Disabled (messageCount <= 1)');
       return;
     }
+
+    $viewMoreButton.prop('disabled', false).val('查看更多');
 
     // If interaction exists (messageCount > 1), check if options are selected
     const anyOptionChecked = $('.ccs-share-option input[type="checkbox"]:checked').length > 0;
 
     if (anyOptionChecked) {
-      $shareButton.prop('disabled', false).val('分享');
-      if (DEBUG) console.log('updateShareButtonState: Enabled (options checked)');
+      $shareButton.prop('disabled', false).val('生成卡片');
+      if (DEBUG) console.log('updateActionButtonsState: Enabled (options checked)');
     } else {
       $shareButton.prop('disabled', true).val('请选择内容');
-      if (DEBUG) console.log('updateShareButtonState: Disabled (no options checked)');
+      if (DEBUG) console.log('updateActionButtonsState: Disabled (no options checked)');
     }
   }
 
@@ -815,12 +807,12 @@ jQuery(async () => {
     }
   }
 
-  async function updateStats() {
+  async function updateStats(deepScan = false, onProgress = null) {
     if (DEBUG) console.log('Attempting to update stats...');
     const characterName = getCurrentCharacterName();
     $("#ccs-character").text(characterName);
     try {
-      const stats = await getFullStats();
+      const stats = await getFullStats(deepScan, onProgress);
       if (DEBUG) console.log('Stats received in updateStats:', stats);
 
       const chatFilesCount = stats.chatFilesCount || 0;
@@ -835,7 +827,7 @@ jQuery(async () => {
         $("#ccs-total-size").text("0 B");
         $("#ccs-start").text("尚未互动");
         $("#ccs-days").text("0");
-        updateShareButtonState(0);
+        updateActionButtonsState(0);
       } else {
         // 更新统计数据到UI
         $("#ccs-messages").text(stats.messageCount || 0);
@@ -878,8 +870,10 @@ jQuery(async () => {
 
         $("#ccs-start").text(firstTimeFormatted);
         $("#ccs-days").text(days);
+        // 保存高级统计数据
+        currentAdvancedStats = stats.advanced;
         // Pass messageCount to the state function
-        updateShareButtonState(stats.messageCount);
+        updateActionButtonsState(stats.messageCount);
       }
       // Removed the stray 'else' block that was here
 
@@ -889,19 +883,21 @@ jQuery(async () => {
           messages: stats.messageCount,
           words: stats.wordCount,
           firstTime: stats.firstTime,
-          days: $("#ccs-days").text()
+          days: $("#ccs-days").text(),
+          advanced: currentAdvancedStats
         });
       }
 
     } catch (error) {
       console.error('更新统计数据失败:', error);
+      currentAdvancedStats = null;
       // 显示错误状态
       $("#ccs-messages").text('--');
       $("#ccs-words").text('--');
       $("#ccs-start").text('--');
       $("#ccs-days").text('--');
       $("#ccs-total-size").text('--'); // Clear size on error too
-      updateShareButtonState(0); // Pass 0 on error to ensure disabled state
+      updateActionButtonsState(0); // Pass 0 on error to ensure disabled state
     }
   }
 
@@ -2013,11 +2009,74 @@ jQuery(async () => {
   // 绑定点击事件 - 使用事件委托以防动态加载问题
   $(document).on('click', '#ccs-refresh', updateStats);
 
+  // “查看更多”高级统计逻辑
+  $(document).on('click', '#ccs-view-more', async function() {
+    const $modal = $('#ccs-advanced-modal');
+    const $loading = $('#ccs-advanced-loading');
+    const $content = $('#ccs-advanced-content');
+    const $error = $('#ccs-advanced-error');
+    
+    // 动态更新模态框标题
+    $('#ccs-advanced-character-name').text(`${getCurrentCharacterName()}`);
+    
+    // 1. 打开模态框并显示加载状态
+    $('#ccs-advanced-progress-text').text('正在分析回忆...');
+    $('#ccs-advanced-progress-bar').css('width', '0%');
+    
+    $loading.show();
+    $content.hide();
+    $error.hide();
+    $modal.addClass('ccs-modal-visible').show();
+    $('body').addClass('ccs-no-scroll');
+    
+    try {
+      if (DEBUG) console.log("[StatsDebug] View More clicked, triggering deep scan...");
+      // 执行深度分析
+      await updateStats(true, (percent, current, total) => {
+        $('#ccs-advanced-progress-text').text(`正在分析回忆... ${percent}%`);
+        $('#ccs-advanced-progress-bar').css('width', `${percent}%`);
+      });
+      
+      if (currentAdvancedStats) {
+        $loading.hide();
+        $content.fadeIn();
+        
+        // 填充数据
+        $('#ccs-today-messages').html(`${currentAdvancedStats.todayMessages} <span class="ccs-advanced-unit">条</span>`);
+        $('#ccs-longest-streak').html(`${currentAdvancedStats.longestStreak} <span class="ccs-advanced-unit">天</span>`);
+        $('#ccs-peak-date').text(currentAdvancedStats.peakDate || '--');
+        $('#ccs-peak-count').html(`${currentAdvancedStats.peakCount} <span class="ccs-advanced-unit">条消息</span>`);
+      } else {
+        $loading.hide();
+        $error.show();
+      }
+    } catch (e) {
+      if (DEBUG) console.error("[StatsDebug] Deep scan failed:", e);
+      $loading.hide();
+      $error.show();
+    }
+  });
+
+  $(document).on('click', '#ccs-advanced-close', function() {
+    $('#ccs-advanced-modal').removeClass('ccs-modal-visible').hide();
+    $('body').removeClass('ccs-no-scroll');
+    currentAdvancedStats = null; // Memory release
+  });
+
+  // 点击背景关闭高级统计
+  $(document).on('click', '#ccs-advanced-modal', function(e) {
+    if (e.target === this) {
+      $(this).removeClass('ccs-modal-visible').hide();
+      $('body').removeClass('ccs-no-scroll');
+      currentAdvancedStats = null; // Memory release
+    }
+  });
+
   // Add change listener to checkboxes to update share button state
   $(document).on('change', '.ccs-share-option input[type="checkbox"]', function () {
     // Re-evaluate button state based on current message count whenever options change
     const currentMessageCount = parseInt($("#ccs-messages").text(), 10) || 0;
-    updateShareButtonState(currentMessageCount);
+    updateActionButtonsState(currentMessageCount);
   });
 
   // Observe character selection changes to trigger auto-refresh
@@ -2368,4 +2427,7 @@ jQuery(async () => {
   // =========================================================================
 
   if (DEBUG) console.log("✅ 聊天陪伴统计插件已加载 (自动刷新已启用)");
+  
+  // 初始刷新
+  setTimeout(updateStats, 1000);
 });
