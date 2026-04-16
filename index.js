@@ -358,31 +358,67 @@ jQuery(async () => {
     return null;
   }
 
-  // 获取特定文件的第一条消息时间 (同步使用 API)
-  async function getEarliestMessageDate(fileName, charId) {
+  // 获取特定文件的第一条消息时间 (轻量版API调用)
+  async function getEarliestMessageDate(fileName, charId, charName) {
     try {
+      // API 要求不带扩展名的文件名（与 getChatFileStats 一致）
+      let cleanFileName = fileName;
+      if (cleanFileName.endsWith('.jsonl')) {
+        cleanFileName = cleanFileName.replace('.jsonl', '');
+      } else if (cleanFileName.endsWith('.json')) {
+        cleanFileName = cleanFileName.replace('.json', '');
+      }
+
+      if (DEBUG) console.log(`[StatsDebug] getEarliestMessageDate: requesting "${cleanFileName}" for char: ${charName}`);
+
       const response = await fetch('/api/chats/get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ch_name: charName,
           avatar_url: charId,
-          file_name: fileName
+          file_name: cleanFileName
         })
       });
 
-      if (response.ok) {
-        const chatData = await response.json();
-        if (Array.isArray(chatData)) {
-          for (const m of chatData) {
-            if (m && m.send_date) {
-              const date = parseSillyTavernDate(m.send_date);
-              if (date) return date;
-            }
+      if (!response.ok) {
+        if (DEBUG) console.warn(`[StatsDebug] getEarliestMessageDate: API returned ${response.status} for "${cleanFileName}"`);
+        return null;
+      }
+
+      const chatData = await response.json();
+
+      // 兼容多种返回格式（与 getChatFileStats 一致的解析逻辑）
+      let messagesArray = [];
+      if (Array.isArray(chatData)) {
+        messagesArray = chatData;
+      } else if (chatData && typeof chatData === 'object') {
+        if (Array.isArray(chatData.chat)) {
+          messagesArray = chatData.chat;
+        } else if (Array.isArray(chatData.messages)) {
+          messagesArray = chatData.messages;
+        } else {
+          messagesArray = Object.values(chatData).filter(item => item && typeof item === 'object' && (item.mes !== undefined || item.is_user !== undefined));
+        }
+      }
+
+      if (DEBUG) console.log(`[StatsDebug] getEarliestMessageDate: got ${messagesArray.length} messages from "${cleanFileName}"`);
+
+      // 遍历所有消息找到最早的日期
+      let earliestDate = null;
+      for (const m of messagesArray) {
+        if (m && m.send_date) {
+          const date = parseSillyTavernDate(m.send_date);
+          if (date && (!earliestDate || date < earliestDate)) {
+            earliestDate = date;
           }
         }
       }
+
+      if (DEBUG && earliestDate) console.log(`[StatsDebug] getEarliestMessageDate: found date ${earliestDate.toISOString()} in "${cleanFileName}"`);
+      return earliestDate;
     } catch (e) {
-      if (DEBUG) console.error(`[StatsDebug] Error in getEarliestMessageDate:`, e);
+      if (DEBUG) console.error(`[StatsDebug] Error in getEarliestMessageDate for "${fileName}":`, e);
     }
     return null;
   }
@@ -593,19 +629,25 @@ jQuery(async () => {
       const chats = await getPastCharacterChats(characterId);
       const chatFilesCount = Array.isArray(chats) ? chats.length : 0;
 
-      // 2. 如果当前 ID 是数字，尝试利用列表进行反向修复，确保 API 能用
+      // 2. 如果当前 ID 是数字，尝试修复为正确的 avatar 文件名
       if (!isNaN(characterId) || characterId === '0') {
-         if (chatFilesCount > 0 && chats[0].file_name) {
-            const charNameFromObs = chats[0].file_name.split(' - ')[0];
-            characterId = `${charNameFromObs}.png`;
-            if (DEBUG) console.log(`[StatsDebug] ID upscaled from index to filename: ${characterId}`);
-         } else {
-            // 尝试通过 context 索引修复
-            const chars = context.characters || window.characters || [];
-            const idx = (context.selected_character !== undefined) ? context.selected_character : window.selected_character;
-            if (chars && chars[idx] && chars[idx].avatar) {
-               characterId = chars[idx].avatar;
-               if (DEBUG) console.log(`[StatsDebug] ID upscaled via context index: ${characterId}`);
+         // 优先方案：通过 context 索引直接获取 avatar（最可靠，不受文件改名影响）
+         const chars = context.characters || window.characters || [];
+         // characterId 本身就是数字索引，当 selected_character 不可用时直接用它
+         const idx = (context.selected_character !== undefined) ? context.selected_character 
+                   : (window.selected_character !== undefined) ? window.selected_character 
+                   : parseInt(characterId);
+         if (chars && chars[idx] && chars[idx].avatar) {
+            characterId = chars[idx].avatar;
+            if (DEBUG) console.log(`[StatsDebug] ID upscaled via context avatar: ${characterId}`);
+         } else if (chatFilesCount > 0 && chats[0].file_name) {
+            // 后备方案：从文件名提取（仅当文件名包含标准 " - " 分隔符时才可靠）
+            const parts = chats[0].file_name.split(' - ');
+            if (parts.length >= 2) {
+               characterId = `${parts[0]}.png`;
+               if (DEBUG) console.log(`[StatsDebug] ID upscaled from filename: ${characterId}`);
+            } else {
+               if (DEBUG) console.warn(`[StatsDebug] Cannot upscale ID: file "${chats[0].file_name}" has no standard delimiter`);
             }
          }
       }
@@ -680,8 +722,8 @@ jQuery(async () => {
            parseableFilesInfo.sort((a,b) => a.date - b.date);
            let filesToCheck = parseableFilesInfo.slice(0, 3).map(f => f.name);
 
+           const charNameForApi = getCurrentCharacterName();
            if (filesToCheck.length > 0) {
-              const charNameForApi = getCurrentCharacterName();
               for (const file of filesToCheck) {
                  const fileStats = await getChatFileStats(file, characterId, charNameForApi);
                  if (fileStats && fileStats.earliestTime) {
@@ -697,7 +739,7 @@ jQuery(async () => {
            if (unparseableFiles.length > 0) {
               if (DEBUG) console.log(`[StatsDebug] Found ${unparseableFiles.length} renamed/unparseable file(s), checking first message date for each...`);
               for (const file of unparseableFiles) {
-                 const msgDate = await getEarliestMessageDate(file, characterId);
+                 const msgDate = await getEarliestMessageDate(file, characterId, charNameForApi);
                  if (msgDate) {
                     if (!earliestTime || msgDate < earliestTime) {
                        earliestTime = msgDate;
@@ -931,6 +973,23 @@ jQuery(async () => {
         if (DEBUG) console.log('No firstTime but has messages, showing partial data');
         $("#ccs-messages").text(stats.messageCount || 0);
         $("#ccs-words").text(stats.wordCount || 0);
+
+        // 即使没有初遇时间，也要显示回忆大小
+        let formattedSize = '--';
+        if (stats.totalSizeBytes !== undefined && stats.totalSizeBytes >= 0) {
+          const bytes = stats.totalSizeBytes;
+          const kb = bytes / 1024;
+          const mb = kb / 1024;
+          if (mb >= 1) {
+            formattedSize = `${mb.toFixed(2)} MB`;
+          } else if (kb >= 1) {
+            formattedSize = `${kb.toFixed(2)} KB`;
+          } else {
+            formattedSize = `${bytes} B`;
+          }
+        }
+        $("#ccs-total-size").text(formattedSize);
+
         $("#ccs-start").text("未知时间");
         $("#ccs-days").text("--");
         updateActionButtonsState(stats.messageCount);
@@ -2365,7 +2424,7 @@ jQuery(async () => {
              // 对所有被改名的文件，使用轻量API检查第一条消息日期
              if (unparseableFiles.length > 0) {
                for (const file of unparseableFiles) {
-                  const msgDate = await getEarliestMessageDate(file, charId);
+                  const msgDate = await getEarliestMessageDate(file, charId, char.name);
                   if (msgDate) {
                      if (!earliestTime || msgDate < earliestTime) {
                         earliestTime = msgDate;
