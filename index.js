@@ -1153,11 +1153,77 @@ jQuery(async () => {
     return null; // Return null if not found in either place
   }
 
+  function toChineseNumber(num) {
+    if (num === 0) return '零';
+    const numChars = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    let result = '';
+    
+    if (num < 100) {
+        if (num < 10) return numChars[num];
+        const tens = Math.floor(num / 10);
+        const ones = num % 10;
+        if (tens === 1) result = '十';
+        else result = numChars[tens] + '十';
+        if (ones > 0) result += numChars[ones];
+        return result;
+    }
+    if (num >= 10000) {
+        let wan = Math.floor(num / 10000);
+        let qian = Math.floor((num % 10000) / 1000);
+        let res = toChineseNumber(wan) + '万';
+        if (qian > 0) res += numChars[qian] + '千';
+        return res;
+    }
+    if (num >= 1000) {
+        let qian = Math.floor(num / 1000);
+        let bai = Math.floor((num % 1000) / 100);
+        let res = numChars[qian] + '千';
+        if (bai > 0) res += numChars[bai] + '百';
+        return res;
+    }
+    if (num >= 100) {
+        let bai = Math.floor(num / 100);
+        let shi = Math.floor((num % 100) / 10);
+        let res = numChars[bai] + '百';
+        if (shi > 0) res += numChars[shi] + '十';
+        return res;
+    }
+    return result;
+  }
+
+  function formatAncientSize(sizeStr) {
+    if (!sizeStr || sizeStr === '--') return "未知";
+    const match = sizeStr.match(/^([\d.]+)\s*(\w+)$/i);
+    if (!match) return sizeStr;
+    const val = parseFloat(match[1]);
+    const unit = match[2].toUpperCase();
+    if (unit === 'MB') {
+        if (val < 1) return '不到一兆';
+        return toChineseNumber(Math.floor(val)) + '兆余';
+    } else if (unit === 'GB') {
+        return toChineseNumber(Math.floor(val * 1024)) + '兆余';
+    } else if (unit === 'KB') {
+        if (val >= 1000) return toChineseNumber(Math.floor(val/1000)) + '兆余';
+        return toChineseNumber(Math.floor(val)) + '千字节余';
+    }
+    return toChineseNumber(Math.floor(val)) + '字节';
+  }
+
+  function drawVerticalText(ctx, text, x, y, lineHeight) {
+    for (let i = 0; i < text.length; i++) {
+        ctx.fillText(text[i], x, y + i * lineHeight);
+    }
+  }
+
   async function generateShareImage() {
+    const isDark = shareStyle === 'modern-dark' || shareStyle === 'dark';
+    const isPixel = shareStyle === 'pixel-pink';
+    const isModern = shareStyle === 'modern-light' || shareStyle === 'modern-dark' || shareStyle === 'modern';
+    const isAncient = shareStyle === 'ancient';
+
     // 强制等待所有字体加载完毕，防止 Canvas 渲染时回退到默认字体
     await document.fonts.ready;
     
-    // 终极策略：直接从已排版好的标题元素抓取真实计算字体，绕过全局变量和 body 的潜在覆盖
     const sampleEl = document.querySelector('.ccs-global-title') || document.body;
     const baseFontFamily = getComputedStyle(sampleEl).fontFamily || '"LXGW Neo XiHei", "PingFang SC", sans-serif';
 
@@ -1167,11 +1233,6 @@ jQuery(async () => {
 
     const scaleFactor = 2;
     const width = 663 * scaleFactor;
-
-    // Theme colors
-    const isDark = shareStyle === 'modern-dark' || shareStyle === 'dark';
-    const isPixel = shareStyle === 'pixel-pink';
-    const isModern = !isPixel; // Adjust modern flag
 
     // Scrapbook Pixel Colors
     const pixelBg = '#FEF9F0'; // Warm Cream
@@ -1193,9 +1254,10 @@ jQuery(async () => {
     const charNameColor = isPixel ? pixelText : (isDark ? '#FAFBF7' : '#131313');
     const dashColor = '#FFFFFF';
 
-    // 0. 加载资产 (Ins & Pixel Style)
+    // 0. 加载资产 (Ins & Pixel Style & Ancient)
     const insAssets = {};
     const pixelAssets = {};
+    const ancientAssets = {};
     
     const loadAssetImg = (url) => new Promise((resolve) => {
       const img = new Image();
@@ -1208,6 +1270,11 @@ jQuery(async () => {
       img.onerror = () => { clearTimeout(timeout); resolve(null); };
       img.src = url;
     });
+
+    if (shareStyle === 'ancient') {
+      const v = Date.now();
+      ancientAssets.bg = await loadAssetImg(`${extensionWebPath}/assets/ancient-bg.png?v=${v}`);
+    }
 
     if (shareStyle === 'ins') {
       const v = Date.now();
@@ -1258,9 +1325,9 @@ jQuery(async () => {
       }
     ];
 
-    // 如果不是现代简约风，则加上初遇时间显示
-    if (!isModern) {
-      statsItems.unshift({ id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '') });
+    // 如果是青纹信笺或像素风，则加上初遇时间显示 (现代简约默认不加)
+    if (isAncient || isPixel) {
+      statsItems.unshift({ id: 'ccs-share-start', label: '初遇时间', value: $("#ccs-start").text().replace(/约/g, '').replace(/点/g, ':').replace(/分/g, '') });
     }
 
     let stats = statsItems.filter(s => $(`#${s.id}`).is(":checked"));
@@ -1268,6 +1335,48 @@ jQuery(async () => {
     // Filter out duplicate Encounter stat from bottom panels in Pink Pixel mode
     if (isPixel) {
       stats = stats.filter(s => s.id !== 'ccs-share-start');
+    }
+
+    if (shareStyle === 'ancient') {
+      stats = stats.map(s => {
+        let newLabel = s.label;
+        let newValue = s.value;
+        if (s.id === 'ccs-share-start') {
+          newLabel = '初见';
+          const rawText = $("#ccs-start").text().replace(/点/g, ':').replace(/分/g, '').replace(/-/g, '/');
+          const dt = new Date(rawText);
+          if (!isNaN(dt.getTime())) {
+            newValue = `${toChineseNumber(dt.getFullYear())}年${toChineseNumber(dt.getMonth()+1)}月${toChineseNumber(dt.getDate())}日`;
+          } else {
+            // Some fallback if it cannot be parsed as a valid date
+            const match = rawText.match(/(\d{4}).*?(\d{1,2}).*?(\d{1,2})/);
+            if (match) {
+               newValue = `${toChineseNumber(parseInt(match[1]))}年${toChineseNumber(parseInt(match[2]))}月${toChineseNumber(parseInt(match[3]))}日`;
+            } else {
+               newValue = rawText === '尚未互动' ? '尚未互动' : '未知';
+            }
+          }
+          s.unit = '';
+        } else if (s.id === 'ccs-share-messages') {
+          newLabel = '对话';
+          newValue = toChineseNumber(parseInt(s.value) || 0);
+          s.unit = '则';
+        } else if (s.id === 'ccs-share-days') {
+          newLabel = '相伴';
+          newValue = toChineseNumber(parseInt(s.value) || 0);
+          s.unit = '日';
+        } else if (s.id === 'ccs-share-words') {
+          newLabel = '字数';
+          newValue = '约' + toChineseNumber(parseInt(s.value.replace(/,/g, '')) || 0);
+          s.unit = '字';
+        } else if (s.id === 'ccs-share-size') {
+          newLabel = '忆存';
+          const totalSizeRaw = $("#ccs-total-size").text();
+          newValue = formatAncientSize(totalSizeRaw);
+          s.unit = '';
+        }
+        return { ...s, label: newLabel, value: newValue };
+      });
     }
 
     // Base Values (Unscaled)
@@ -1302,7 +1411,10 @@ jQuery(async () => {
       totalStatsH = (stats.length > 0 ? (stats.length * boxH + (stats.length - 1) * boxGap + 80 * scaleFactor) : 0);
     }
 
-    const height = headerH + totalStatsH + (isPixel ? 0 : footerH);
+    let height = headerH + totalStatsH + (isPixel ? 0 : footerH);
+    if (shareStyle === 'ancient') {
+      height = 816 * scaleFactor;
+    }
     const dynamicHeight = height;
 
     // 现代版底色区域 (This block is now mostly for non-ins styles)
@@ -1315,14 +1427,19 @@ jQuery(async () => {
 
     // Apply 16px border radius to the entire card
     ctx.save();
-    roundRect(0, 0, width, dynamicHeight, 16 * scaleFactor, false, false);
+    if (shareStyle === 'ancient') {
+       // ancient style doesn't need border radius
+       ctx.rect(0, 0, width, dynamicHeight);
+    } else {
+       roundRect(0, 0, width, dynamicHeight, 16 * scaleFactor, false, false);
+    }
     ctx.clip();
 
     // 尝试加载字体并等待加载完成
     try {
       if (document.fonts) {
-        // Extract all unique characters from stats to ensure subsetted fonts load them
-        const statChars = Array.from(new Set(statsItems.map(s => (s.label + s.value + (s.unit || '')).split('')).flat())).join('');
+        // 使用最终处理后的 stats 数组（包含青纹信笺转换后的中文数字和单位）来提取字符，确保子集字体正确加载
+        const statChars = Array.from(new Set(stats.map(s => (s.label + s.value + (s.unit || '')).split('')).flat())).join('');
 
         // Trigger font loading
         const fontPromises = [
@@ -1330,7 +1447,8 @@ jQuery(async () => {
           document.fonts.load(`700 32px "LXGW Neo XiHei"`, statChars),
           document.fonts.load(`400 32px "PING FANG SHAO HUA"`, statChars),
           document.fonts.load(`400 32px "Cubic 11"`, charName + statChars + '初遇'),
-          document.fonts.load(`400 48px "Long Cang"`, '初遇')
+          document.fonts.load(`400 48px "Long Cang"`, '初遇'),
+          document.fonts.load(`400 32px "PING FANG GONG ZI TI"`, charName + statChars + '初见')
         ];
 
         // Wait for fonts to load, with a timeout to prevent hanging forever
@@ -1362,11 +1480,20 @@ jQuery(async () => {
     }
 
     // 3. 绘制背景
-    ctx.fillStyle = (shareStyle === 'ins') ? '#FFFFFF' : (isPixel ? '#F1BDC3' : tealColor); // Solid color background
-    if (shareStyle === 'ins') {
-      roundRect(0, 0, width, height, 24 * scaleFactor);
+    if (shareStyle === 'ancient') {
+      if (ancientAssets.bg) {
+        ctx.drawImage(ancientAssets.bg, 0, 0, width, height);
+      } else {
+        ctx.fillStyle = '#f0e6d2'; // Fallback paper color
+        ctx.fillRect(0, 0, width, height);
+      }
     } else {
-      ctx.fillRect(0, 0, width, height); // Fill whole background
+      ctx.fillStyle = (shareStyle === 'ins') ? '#FFFFFF' : (isPixel ? '#F1BDC3' : tealColor); // Solid color background
+      if (shareStyle === 'ins') {
+        roundRect(0, 0, width, height, 24 * scaleFactor);
+      } else {
+        ctx.fillRect(0, 0, width, height); // Fill whole background
+      }
     }
 
 
@@ -1385,6 +1512,8 @@ jQuery(async () => {
       }
     } else if (isPixel) {
       // Pixel Pink Background - Simple pink fill already done in step 3
+    } else if (shareStyle === 'ancient') {
+      // Ancient style doesn't need a content area background box
     } else if (stats.length > 0) {
       ctx.fillStyle = contentAreaBg;
       const contentAreaW = 599 * scaleFactor;
@@ -1395,6 +1524,47 @@ jQuery(async () => {
 
 
     // 4. 绘制头像 (Moved to after background, before header logic)
+    if (isAncient) {
+      // 青纹信笺专属竖排绘制
+      ctx.save();
+      ctx.fillStyle = '#2c2824'; // 深墨色
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      // 角色名往下 6px (44+6=50), 保持 x 不变 (579)
+      const charNameX = 579 * scaleFactor;
+      const charNameY = 50 * scaleFactor;
+      
+      // 绘制角色名 (调整为 100px)
+      ctx.font = `400 ${100 * scaleFactor}px "PING FANG GONG ZI TI", "Long Cang", sans-serif`;
+      drawVerticalText(ctx, charName || "角色名", charNameX, charNameY, 110 * scaleFactor);
+
+      // 调整格子中心点: 
+      // 初见(idx 0)左移1px (466.5->465.5)
+      const gridCenters = [465.5, 387.5, 306.5, 226.0, 144.0, 70.5].map(x => x * scaleFactor);
+      const statYStart = 136 * scaleFactor; 
+
+      // 绘制各项数据 (字号调整为 43px)
+      const statFontSize = 43 * scaleFactor;
+      const statLineHeight = 45 * scaleFactor;
+      const labelValueGap = 64 * scaleFactor; 
+
+      ctx.font = `400 ${statFontSize}px "PING FANG GONG ZI TI", "LXGW Neo XiHei", sans-serif`; 
+      stats.forEach((stat, i) => {
+         if (i >= gridCenters.length) return;
+         const cx = gridCenters[i];
+         
+         // 分开绘制 Label 和 Value 以控制间距
+         drawVerticalText(ctx, stat.label, cx, statYStart, statLineHeight);
+         
+         const labelYEnd = statYStart + stat.label.length * statLineHeight;
+         const valueYStart = labelYEnd + labelValueGap;
+         
+         drawVerticalText(ctx, stat.value + stat.unit, cx, valueYStart, statLineHeight);
+      });
+      ctx.restore();
+    } else {
+    // 现代版、Ins版、像素版绘制头像和统计项
     const avatarUrl = getCharacterAvatar();
     const userAvatarUrl = getUserAvatar();
 
@@ -1773,6 +1943,7 @@ jQuery(async () => {
       drawPngIcon(insIcons.share, startX + (iconSize + iconGap) * 2, iconY);
       drawPngIcon(insIcons.bookmark, width - startX - iconSize, iconY);
     }
+    } // Close else block for modern/ins/pixel layout
 
     ctx.restore(); // Restore from card-level 16px clipping
     return canvas.toDataURL('image/png');
@@ -2158,7 +2329,7 @@ jQuery(async () => {
       $container.html('<p style="color:red; padding: 20px;">生成分享图片失败，请检查控制台。</p>');
     } finally {
       setTimeout(() => {
-        $button.prop('disabled', false).val('分享');
+        $button.prop('disabled', false).val('生成卡片');
       }, 1000);
     }
   });
