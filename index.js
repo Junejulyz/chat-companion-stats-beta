@@ -1,7 +1,7 @@
 console.log("[CCStats] Script source file loaded.");
 window.ccs_loaded = true;
 import { getContext } from "../../../extensions.js";
-import { getPastCharacterChats } from '../../../../script.js';
+import { getPastCharacterChats, getRequestHeaders } from '../../../../script.js';
 
 const extensionName = "chat-companion-stats";
 const extensionWebPath = import.meta.url.replace(/\/index\.js$/, '');
@@ -57,6 +57,12 @@ jQuery(async () => {
   
   // Move modals to body to prevent clipping by parent containers and fix fixed positioning
   $("#ccs-preview-modal, #ccs-global-modal, #ccs-advanced-modal").appendTo("body").removeClass('ccs-modal-visible').hide();
+
+  // 阻止事件冒泡，防止点击模态框时触发 ST 原生的“点击外部关闭扩展面板”逻辑
+  // 增加 mousedown, mouseup, touchstart, touchend 确保全平台所有可能的触发事件都被拦截
+  $("#ccs-preview-modal, #ccs-global-modal, #ccs-advanced-modal").on('pointerdown pointerup mousedown mouseup touchstart touchend click', function(e) {
+    e.stopPropagation();
+  });
 
   // 同步下拉框的选择状态
   $("#ccs-style-select").val(shareStyle);
@@ -403,7 +409,7 @@ jQuery(async () => {
 
       const response = await fetchWithRetry('/api/chats/get', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: Object.assign({ 'Content-Type': 'application/json' }, typeof getRequestHeaders === 'function' ? getRequestHeaders() : {}),
         body: JSON.stringify({
           ch_name: charName,
           avatar_url: charId,
@@ -470,7 +476,7 @@ jQuery(async () => {
       // 使用官方 API 获取聊天内容，必须包含 ch_name
       const response = await fetchWithRetry('/api/chats/get', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: Object.assign({ 'Content-Type': 'application/json' }, typeof getRequestHeaders === 'function' ? getRequestHeaders() : {}),
         body: JSON.stringify({
           ch_name: charName,
           avatar_url: charId, // 备用标识
@@ -2187,7 +2193,7 @@ jQuery(async () => {
   updateStats(); // Keep initial update on load
 
   // 风格切换处理 (在预览窗口中)
-  $(document).on('change', '#ccs-style-select', async function () {
+  $("#ccs-style-select").on('change', async function () {
     shareStyle = $(this).val();
     localStorage.setItem('ccs-share-style', shareStyle); // 保存用户选择到 localStorage
     if (DEBUG) console.log('Selected style changed (dropdown):', shareStyle);
@@ -2274,14 +2280,14 @@ jQuery(async () => {
     }
   });
 
-  $(document).on('click', '#ccs-advanced-close', function() {
+  $("#ccs-advanced-close").on('click', function() {
     $('#ccs-advanced-modal').removeClass('ccs-modal-visible').hide();
     $('body').removeClass('ccs-no-scroll');
     currentAdvancedStats = null; // Memory release
   });
 
   // 点击背景关闭高级统计
-  $(document).on('click', '#ccs-advanced-modal', function(e) {
+  $("#ccs-advanced-modal").on('click', function(e) {
     if (e.target === this) {
       $(this).removeClass('ccs-modal-visible').hide();
       $('body').removeClass('ccs-no-scroll');
@@ -2624,7 +2630,7 @@ jQuery(async () => {
   });
 
   // 绑定 Tab 切换事件
-  $(document).on('click', '.ccs-tab', function () {
+  $("#ccs-global-modal").on('click', '.ccs-tab', function () {
     if ($(this).hasClass('active')) return;
     
     $('.ccs-tab').removeClass('active');
@@ -2639,7 +2645,7 @@ jQuery(async () => {
   });
 
   // 绑定全局排行分享按钮事件
-  $(document).on('click', '#ccs-global-share-btn', async function () {
+  $("#ccs-global-modal").on('click', '#ccs-global-share-btn', async function () {
     const $button = $(this);
     if ($button.hasClass('loading') || $button.hasClass('disabled')) return;
     
@@ -2680,10 +2686,10 @@ jQuery(async () => {
     // 直接操作 class 或用回原来的逻辑并发处理
   }
 
-  $(document).on('click', '#ccs-global-close', closeAndClearGlobalModal);
+  $("#ccs-global-close").on('click', closeAndClearGlobalModal);
   
   // 点击遮罩层空白处关闭
-  $(document).on('click', '#ccs-global-modal', function (e) {
+  $("#ccs-global-modal").on('click', function (e) {
     if (e.target === this) {
       closeAndClearGlobalModal();
     }
